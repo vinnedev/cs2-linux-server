@@ -1,0 +1,17 @@
+services:
+  cs2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cs2-server
+    env_file:
+      - .env
+    ports:
+      - "27015:27015/tcp"
+      - "27015:27015/udp"
+      - "27020:27020/tcp"
+      - "27020:27020/udp"
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./server:/app/server

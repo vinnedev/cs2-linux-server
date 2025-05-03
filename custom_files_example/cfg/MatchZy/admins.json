@@ -1,0 +1,14 @@
+{
+  "vzzn": {
+    "identity": "76561198098605354",
+    "groups": [
+      "#css/admin"
+    ]
+  },
+  "Mod": {
+    "identity": "123",
+    "groups": [
+      "#css/moderator"
+    ]
+  }
+}
