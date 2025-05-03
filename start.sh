@@ -29,12 +29,37 @@ export LD_LIBRARY_PATH="$ROOT_DIR/steamcmd/linux64:${LD_LIBRARY_PATH:-}"
 # Abrindo portas no firewall
 echo "🔐 Verificando/abrindo portas de firewall (UFW)..."
 if command -v ufw &> /dev/null; then
-    sudo ufw allow ${PORT}/tcp
-    sudo ufw allow ${PORT}/udp
-    sudo ufw allow 27020/tcp
-    sudo ufw allow 27020/udp
+    if ! sudo ufw status | grep -q "${PORT}/tcp"; then
+        sudo ufw allow ${PORT}/tcp
+    else
+        echo "✅ Porta ${PORT}/tcp já está aberta no firewall."
+    fi
+    if ! sudo ufw status | grep -q "${PORT}/udp"; then
+        sudo ufw allow ${PORT}/udp
+    else
+        echo "✅ Porta ${PORT}/udp já está aberta no firewall."
+    fi
+    if ! sudo ufw status | grep -q "27020/tcp"; then
+        sudo ufw allow 27020/tcp
+    else
+        echo "✅ Porta 27020/tcp já está aberta no firewall."
+    fi
+    if ! sudo ufw status | grep -q "27020/udp"; then
+        sudo ufw allow 27020/udp
+    else
+        echo "✅ Porta 27020/udp já está aberta no firewall."
+    fi
 else
     echo "⚠️ UFW não está instalado. Pulei a configuração de firewall."
+fi
+
+echo "===== Preparando arquivos do servidor ====="
+rm -rf "$ROOT_DIR/server/game/csgo/addons"
+rm -rf "$ROOT_DIR/server/game/csgo/cfg/settings"
+cp -r "$ROOT_DIR/components/csgo/." "$ROOT_DIR/server/game/csgo/"
+
+if [ -d "$ROOT_DIR/components/csgo/addons/linux" ]; then
+    cp -r "$ROOT_DIR/components/csgo/addons/linux/." "$ROOT_DIR/server/game/csgo/"
 fi
 
 echo "🟢 Iniciando servidor CS2..."
