@@ -15,3 +15,4 @@ services:
     tty: true
     volumes:
       - ./server:/app/server
+      - /root/.steam/sdk64/steamclient.so:/root/.steam/sdk64/steamclient.so
