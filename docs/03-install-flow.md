@@ -1,6 +1,6 @@
 # 03 — Fluxo de Instalação
 
-Há dois caminhos suportados: **instalação direta no host** (`install.sh`) e **container Docker** (`docker compose up --build`). Ambos convergem no mesmo layout de arquivos.
+Há tres caminhos suportados: **instalação direta no host Linux** (`install.sh`), **instalação local no Windows** (`install.ps1`) e **container Docker** (`docker compose up --build`). Todos convergem no mesmo layout de arquivos.
 
 ## Instalação Local (`install.sh`)
 
@@ -58,6 +58,19 @@ sequenceDiagram
 - **`volumes`**:
   - `./server:/app/server` — persiste o download do SteamCMD fora do container.
   - `steamclient.so` — bind mount do host para satisfazer a dependência dinâmica do binário.
+
+## Instalação Local no Windows (`install.ps1`)
+
+Fluxo resumido:
+
+1. Carrega `.env` se existir e respeita `CS2_PATH` quando informado.
+2. Instala `steamcmd.exe` em `.\steamcmd\` se necessário.
+3. Procura uma instalacao existente em `CS2_PATH`, em `.\server\` ou nas bibliotecas Steam do Windows.
+4. Se encontrar, cria `server/` como junction para a pasta existente; se nao encontrar, executa `+app_update 730`.
+5. Aplica o patch de `gameinfo.gi` e copia `components/csgo/` com overlay de `addons/windows/`.
+
+Esse fluxo evita baixar tudo de novo quando o host ja possui o CS2 instalado em outra pasta.
+Quando uma pasta existente e reaproveitada, o patch do Metamod e os arquivos do overlay passam a ser aplicados nela atraves da junction `server/`.
 
 ## Patch do `gameinfo.gi`
 

@@ -1,6 +1,6 @@
 # CS2 Linux Server — Documentação Técnica
 
-Servidor dedicado **Counter-Strike 2** para Linux com stack de mods (Metamod + CounterStrikeSharp), empacotado em Docker e configurável via `.env`.
+Servidor dedicado **Counter-Strike 2** com stack de mods (Metamod + CounterStrikeSharp), suportando fluxo principal em Linux/Docker e bootstrap local no Windows via PowerShell, configurável por `.env`.
 
 ## Índice
 
@@ -21,8 +21,10 @@ cs2-linux-server/
 ├── docker-compose.yml      # orquestração do container cs2-server
 ├── .env.sample             # template de variáveis de ambiente
 ├── install.sh              # instalação local (host) via SteamCMD
+├── install.ps1             # instalação local no Windows (reaproveita CS2 existente)
 ├── setup.sh                # instalação remota modded (kus/cs2-modded-server)
 ├── start.sh                # entrypoint do container/host
+├── start.ps1               # inicialização local no Windows
 ├── runtime_net_install.sh  # instala .NET 8 runtime (dependência do CSS)
 ├── components/csgo/        # overlay que é copiado para game/csgo/ no boot
 │   ├── addons/             # Metamod + CounterStrikeSharp + mods nativos
@@ -42,3 +44,14 @@ cp .env.sample .env          # preencha STEAM_ACCOUNT, API_KEY, EXEC
 # ou via docker
 docker compose up -d --build
 ```
+
+No Windows:
+
+```powershell
+Copy-Item .env.sample .env
+# opcional: definir CS2_PATH=C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive
+.\install.ps1
+.\start.ps1
+```
+
+Se `CS2_PATH` nao for informado, `install.ps1` tenta localizar uma instalacao existente do CS2 nas bibliotecas Steam do Windows antes de baixar via `SteamCMD`.
