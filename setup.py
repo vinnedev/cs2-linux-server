@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +11,6 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from _common import (  # noqa: E402
-    copytree_merge,
     download,
     ensure_dir,
     extract_archive,
@@ -20,16 +18,15 @@ from _common import (  # noqa: E402
     is_docker,
     is_root,
     log,
-    rmtree_safe,
+    project_root,
     run,
-    sudo_prefix,
     which,
 )
+from apply_components_overlay import apply_overlay  # noqa: E402
 from patch_gameinfo import patch as patch_gameinfo  # noqa: E402
 
 
 STEAMCMD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
-UPSTREAM_REPO = "https://github.com/kus/cs2-modded-server"
 
 
 def detect_bits() -> str:
@@ -57,6 +54,20 @@ def detect_distro() -> tuple[str, str]:
     return platform.system(), platform.release()
 
 
+def detect_existing_game(root: Path) -> Path | None:
+    home = Path.home()
+    candidates = [
+        root / "server" / "game",
+        home / ".local/share/Steam/steamapps/common/Counter-Strike Global Offensive",
+        home / ".steam/steamapps/common/Counter-Strike Global Offensive",
+        Path("/opt/SteamCMD/steamapps/common/Counter-Strike Global Offensive"),
+    ]
+    for candidate in candidates:
+        if (candidate / "csgo" / "gameinfo.gi").exists():
+            return candidate
+    return None
+
+
 def fetch_public_ip() -> str:
     try:
         ip = subprocess.run(
@@ -70,8 +81,8 @@ def fetch_public_ip() -> str:
     try:
         return http_get("https://api.ipify.org", timeout=10).strip()
     except Exception as exc:
-        log.error(f"Could not determine public IP: {exc}")
-        sys.exit(1)
+        log.warn(f"Could not determine public IP: {exc}")
+        return ""
 
 
 def duckdns_update(public_ip: str) -> None:
@@ -90,7 +101,7 @@ def duckdns_update(public_ip: str) -> None:
 def install_steamcmd(steamcmd_dir: Path) -> Path:
     steamcmd_sh = steamcmd_dir / "steamcmd.sh"
     if steamcmd_sh.is_file():
-        log.ok("SteamCMD already installed")
+        log.ok(f"SteamCMD already present at {steamcmd_sh}")
         return steamcmd_sh
     ensure_dir(steamcmd_dir)
     archive = steamcmd_dir / "steamcmd_linux.tar.gz"
@@ -98,11 +109,12 @@ def install_steamcmd(steamcmd_dir: Path) -> Path:
     extract_archive(archive, steamcmd_dir)
     archive.unlink(missing_ok=True)
     os.chmod(steamcmd_sh, 0o755)
-    link_steam_runtime(steamcmd_dir, Path.home())
+    log.ok(f"SteamCMD installed at {steamcmd_sh}")
     return steamcmd_sh
 
 
-def link_steam_runtime(steamcmd_dir: Path, home: Path) -> None:
+def link_steam_runtime(steamcmd_dir: Path) -> None:
+    home = Path.home()
     pairs = [
         (steamcmd_dir / "linux32" / "steamclient.so", home / ".steam" / "sdk32" / "steamclient.so"),
         (steamcmd_dir / "linux64" / "steamclient.so", home / ".steam" / "sdk64" / "steamclient.so"),
@@ -115,99 +127,83 @@ def link_steam_runtime(steamcmd_dir: Path, home: Path) -> None:
             continue
         try:
             dst.symlink_to(src)
+            log.info(f"Linked {dst} -> {src}")
         except OSError as exc:
             log.warn(f"Could not link {dst}: {exc}")
 
 
-def steamcmd_update(steamcmd_sh: Path, install_dir: Path, bits: str) -> None:
+def steamcmd_install(steamcmd_sh: Path, server_dir: Path, bits: str) -> None:
+    ensure_dir(server_dir)
     cmd = [
         str(steamcmd_sh),
         "+api_logging", "1", "1",
         "+@sSteamCmdForcePlatformType", "linux",
         "+@sSteamCmdForcePlatformBitness", bits,
-        "+force_install_dir", str(install_dir),
+        "+force_install_dir", str(server_dir),
         "+login", "anonymous",
         "+app_update", "730",
         "+quit",
     ]
-    with log.task("Downloading / updating CS2"):
+    with log.task("Downloading / updating CS2 via SteamCMD"):
         run(cmd, stream_prefix="steamcmd")
 
 
-def download_upstream(branch: str, workdir: Path) -> Path:
-    archive = workdir / f"{branch}.zip"
-    url = f"{UPSTREAM_REPO}/archive/{branch}.zip"
-    download(url, archive)
-    extract_archive(archive, workdir)
-    archive.unlink(missing_ok=True)
-    extracted = workdir / f"cs2-modded-server-{branch}"
-    if not extracted.is_dir():
-        log.error(f"Expected {extracted} after extraction")
-        sys.exit(1)
-    return extracted
-
-
 def main() -> None:
-    log.section("CS2 upstream-based setup")
-    if not is_root() and not is_docker():
-        log.error("This script must run as root (use sudo)")
-        sys.exit(1)
+    root = project_root()
+    log.section("CS2 setup")
+    log.info(f"Project root: {root}")
+    log.info(f"Docker: {is_docker()}  root: {is_root()}")
 
-    branch = os.environ.get("MOD_BRANCH") or "master"
-    custom_files = os.environ.get("CUSTOM_FOLDER") or "custom_files"
     bits = detect_bits()
     distro, version = detect_distro()
-    log.info(f"Distro: {distro} {version}  bits: {bits}  branch: {branch}")
-
-    if not which("apt-get"):
-        log.error(f"OS distribution not supported (apt-get required): {distro}")
-        sys.exit(1)
+    log.info(f"Distro: {distro} {version}  bits: {bits}")
 
     public_ip = fetch_public_ip()
-    log.ok(f"Public IP: {public_ip}")
-    duckdns_update(public_ip)
+    if public_ip:
+        log.ok(f"Public IP: {public_ip}")
+        duckdns_update(public_ip)
 
-    home = Path.home()
-    server_dir = home / "cs2_server"
-    steamcmd_dir = Path("/steamcmd")
+    server_dir = root / "server"
+    steamcmd_dir = root / "steamcmd"
+    csgo_dir = server_dir / "game" / "csgo"
+    gameinfo = csgo_dir / "gameinfo.gi"
 
-    log.section("SteamCMD")
-    steamcmd_sh = install_steamcmd(steamcmd_dir)
+    game_install_path = os.environ.get("GAME_INSTALL_PATH")
+    if game_install_path:
+        existing_game = Path(game_install_path)
+    else:
+        existing_game = detect_existing_game(root)
 
-    log.section("Game files")
-    steamcmd_update(steamcmd_sh, server_dir, bits)
-    link_steam_runtime(steamcmd_dir, home)
+    if existing_game and existing_game.resolve() == (server_dir / "game").resolve():
+        log.ok(f"Game already at {server_dir / 'game'}")
+    elif existing_game:
+        log.ok(f"Detected existing game at {existing_game}")
+        log.info(f"Game is already in the correct location: {server_dir / 'game'}")
+    else:
+        log.section("SteamCMD — installing CS2")
+        if not which("apt-get"):
+            log.error(f"apt-get required but not found ({distro})")
+            sys.exit(1)
+        steamcmd_sh = install_steamcmd(steamcmd_dir)
+        steamcmd_install(steamcmd_sh, server_dir, bits)
+        link_steam_runtime(steamcmd_dir)
 
-    if distro == "Ubuntu" and version == "22.04":
-        stale = server_dir / "bin" / "libgcc_s.so.1"
-        if stale.exists():
-            stale.unlink()
-            log.info(f"Removed stale {stale}")
-
-    for path in [server_dir / "game" / "csgo" / "addons", server_dir / "game" / "csgo" / "cfg" / "settings"]:
-        rmtree_safe(path)
-
-    log.section("Applying upstream mod files")
-    workdir = Path.cwd()
-    extracted = download_upstream(branch, workdir)
-
-    rmtree_safe(server_dir / "custom_files_example")
-    copytree_merge(extracted / "custom_files_example", server_dir / "custom_files_example")
-    copytree_merge(extracted / "game" / "csgo", server_dir / "game" / "csgo")
-    copytree_merge(extracted / "custom_files", server_dir / "custom_files")
-
-    custom_src = server_dir / custom_files
-    if custom_src.is_dir():
-        log.info(f"Merging custom files from {custom_src}")
-        copytree_merge(custom_src, server_dir / "game" / "csgo")
-
-    rmtree_safe(extracted)
+        if distro == "Ubuntu" and version == "22.04":
+            stale = server_dir / "bin" / "libgcc_s.so.1"
+            if stale.exists():
+                stale.unlink()
+                log.info(f"Removed stale {stale}")
 
     log.section("Patching gameinfo.gi")
-    patch_gameinfo(server_dir / "game" / "csgo" / "gameinfo.gi")
+    if not gameinfo.exists():
+        log.error(f"gameinfo.gi not found at {gameinfo}")
+        sys.exit(1)
+    patch_gameinfo(gameinfo)
 
-    log.ok(f"Setup complete. Server directory: {server_dir}")
-    log.info("Use start.py to boot the server (configure .env first).")
+    log.section("Applying components overlay")
+    apply_overlay(csgo_dir)
+
+    log.ok("Setup complete. Run: python3 start.py")
 
 
 if __name__ == "__main__":

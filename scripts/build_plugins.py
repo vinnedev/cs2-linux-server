@@ -28,7 +28,7 @@ PLUGINS: list[Plugin] = [
     Plugin("cs2-inventory-simulator-plugin", "InventorySimulator.csproj", "InventorySimulator"),
 ]
 
-DISABLED_NAMES = {"RetakesPlugin", "InstadefusePlugin", "ClutchAnnouncePlugin"}
+DISABLED_NAMES: set[str] = set()
 ROOT = project_root()
 SRC_ROOT = ROOT / "plugins_source"
 DEST_ROOT = ROOT / "components" / "csgo" / "addons" / "counterstrikesharp" / "plugins"
