@@ -121,8 +121,14 @@ def main() -> None:
     log.section("Firewall")
     open_firewall_ports(os.environ["PORT"])
 
-    ld_paths = [str(root / "steamcmd" / "linux64"), os.environ.get("LD_LIBRARY_PATH", "")]
+    game_bin = cs2_bin.parent
+    ld_paths = [
+        str(game_bin),
+        str(root / "steamcmd" / "linux64"),
+        os.environ.get("LD_LIBRARY_PATH", ""),
+    ]
     os.environ["LD_LIBRARY_PATH"] = ":".join(p for p in ld_paths if p)
+    log.info(f"LD_LIBRARY_PATH={os.environ['LD_LIBRARY_PATH']}")
 
     cmd = build_cs2_command(root, cs2_bin)
     port = os.environ["PORT"]
