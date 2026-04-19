@@ -13,6 +13,8 @@ CONTEXT:
 - `components/csgo/` is the source of truth for all addons and configs
 - `start.sh` copies components into server at boot
 - `install.sh` handles SteamCMD, CS2 install, and gameinfo.gi patch
+- CounterStrikeSharp API version: 1.0.365
+- Database: MongoDB (connection via MONGODB_URI env var)
 
 KEY PATHS:
 - Server root: `server/`
@@ -21,22 +23,33 @@ KEY PATHS:
 - Metamod: `components/csgo/addons/metamod/`
 - CounterStrikeSharp: `components/csgo/addons/counterstrikesharp/`
 - Plugins: `components/csgo/addons/counterstrikesharp/plugins/`
+- Plugin sources: `plugins_source/`
+
+ENVIRONMENT:
+- `.env` holds all secrets (MONGODB_URI, API_KEY, STEAM_ACCOUNT, RCON_PASSWORD)
+- `.env.example` is the template — copy and fill before first run
+- NEVER commit `.env` — it's in `.gitignore`
 
 OPERATIONS:
-- Update check: `scripts/check-updates.sh`
+- Update check: `scripts/check-updates.sh` (auto-deploys to components/)
 - Build plugins: `scripts/build-plugins.sh`
+- Build single: `scripts/build-plugins.sh <plugin-dir>`
+- Watch mode: `scripts/build-plugins.sh watch <plugin-dir>`
 - Docker: `docker-compose up -d` / `docker-compose down`
 
 RULES:
 - NEVER modify `server/` directly — changes are lost on restart
 - NEVER delete `components/csgo/addons/` without explicit backup
-- NEVER expose `.env`, credentials, or Steam tokens
+- NEVER expose `.env`, credentials, connection strings, or Steam tokens
+- NEVER hardcode secrets in source code
 - NEVER run `docker-compose down -v` (destroys server volume)
-- `check-updates.sh` auto-deploys to `components/csgo/` — no manual copy needed
 - Verify `gameinfo.gi` patch exists after CS2 updates
 - Keep `Dockerfile` and `docker-compose.yml` changes minimal and reviewed
+- After any infrastructure change, update CLAUDE.md and agent docs
 
 TROUBLESHOOTING:
 - If plugins don't load: check `meta list` in console, verify DLL in correct plugin folder
 - If server crashes on start: check gameinfo.gi patch, verify Metamod install
 - If mods don't apply: verify `start.sh` ran the copy step
+- If MongoDB fails: check MONGODB_URI env var is set in `.env`
+- If plugin crashes on timer: check for `Task.Delay` usage — must use `AddTimer()` instead

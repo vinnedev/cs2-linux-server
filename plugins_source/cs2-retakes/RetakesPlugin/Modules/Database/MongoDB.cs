@@ -7,44 +7,53 @@ namespace RetakesPlugin.Modules.Database;
 
 public class MongoDB
 {
+    private static MongoDB? _instance;
+    private static readonly object _lock = new();
     private readonly IMongoCollection<Player> _players;
 
-    public MongoDB()
+    private MongoDB(string connectionString)
     {
-        const string connectionString = "mongodb+srv://admin:lQuKfwXHd6Hbl88r@nexus.6njykdt.mongodb.net/?retryWrites=true&w=majority&appName=nexus";
+        var settings = MongoClientSettings.FromConnectionString(connectionString);
+        settings.ServerApi = new ServerApi(ServerApiVersion.V1);
 
-        if (string.IsNullOrWhiteSpace(connectionString))
+        var client = new MongoClient(settings);
+
+        var pingCommand = new BsonDocumentCommand<BsonDocument>(new BsonDocument("ping", 1));
+        var result = client.GetDatabase("admin").RunCommand(pingCommand);
+
+        if (result != null)
+            Console.WriteLine("[MongoDB] Pinged MongoDB successfully.");
+
+        var database = client.GetDatabase("cs2");
+        _players = database.GetCollection<Player>("players");
+
+        Console.WriteLine("[MongoDB] Connected and collection loaded.");
+    }
+
+    public static MongoDB Instance
+    {
+        get
         {
-            Console.WriteLine("[MongoDB] FATAL: MONGODB_URI not set.");
-            throw new Exception("MONGODB_URI not set");
-        }
+            if (_instance != null)
+                return _instance;
 
-        try
-        {
-            var settings = MongoClientSettings.FromConnectionString(connectionString);
-            settings.ServerApi = new ServerApi(ServerApiVersion.V1);
-
-            var client = new MongoClient(settings);
-
-            // Ping test
-            var pingCommand = new BsonDocumentCommand<BsonDocument>(new BsonDocument("ping", 1));
-            var result = client.GetDatabase("admin").RunCommand(pingCommand);
-
-            if (result != null)
+            lock (_lock)
             {
-                Console.WriteLine("[MongoDB] Pinged MongoDB successfully.");
+                if (_instance != null)
+                    return _instance;
+
+                var connectionString = Environment.GetEnvironmentVariable("MONGODB_URI");
+
+                if (string.IsNullOrWhiteSpace(connectionString))
+                {
+                    Console.WriteLine("[MongoDB] FATAL: MONGODB_URI environment variable not set.");
+                    throw new Exception("MONGODB_URI environment variable not set.");
+                }
+
+                _instance = new MongoDB(connectionString);
             }
-            
 
-            var database = client.GetDatabase("cs2");
-            _players = database.GetCollection<Player>("players");
-
-            Console.WriteLine("[MongoDB] Connected and collection loaded.");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("[MongoDB] Connection failed: " + ex.Message);
-            throw;
+            return _instance;
         }
     }
 
@@ -103,7 +112,7 @@ public class MongoDB
         _players.UpdateOne(filter, update);
         Console.WriteLine("[MongoDB] Player status updated.");
     }
-    
+
     public Player? GetPlayerBySteamId(ulong steamId)
     {
         try
@@ -136,6 +145,4 @@ public class MongoDB
         _players.UpdateOne(filter, update);
         Console.WriteLine("[MongoDB] VIP status updated.");
     }
-
-    
 }

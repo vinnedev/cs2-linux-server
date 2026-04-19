@@ -20,7 +20,7 @@ namespace RetakesPlugin;
 [MinimumApiVersion(220)]
 public class RetakesPlugin : BasePlugin
 {
-    private const string Version = "2.1.0";
+    private const string Version = "2.2.0";
 
     #region Plugin info
     public override string ModuleName => "Retakes Plugin";
@@ -665,7 +665,7 @@ public class RetakesPlugin : BasePlugin
             return HookResult.Continue;
         }
 
-        var db = new Modules.Database.MongoDB();
+        var db = Modules.Database.MongoDB.Instance;
         var account = db.GetPlayerBySteamId(player.SteamID);
 
         if (account == null)
@@ -682,10 +682,10 @@ public class RetakesPlugin : BasePlugin
         if (account?.Vip?.Expiration <= DateTime.UtcNow)
         {
             player.PrintToConsole($"{LogPrefix}Seu VIP expirou em {account.Vip?.Expiration:u}. Sem prioridade de fila.");
-            
+
             db.SetPlayerOnlineStatus(player.SteamID, true, player.IpAddress);
             return HookResult.Continue;
-        } 
+        }
 
         var grant = _retakesConfig?.RetakesConfigData?.QueuePriorityFlag.Split(",")[0].Trim() ?? "@css/vip";
         player.PrintToConsole($"{LogPrefix}Você é VIP ativo até {account?.Vip?.Expiration:u}. Prioridade de fila {grant} aplicada.");
@@ -947,7 +947,7 @@ public class RetakesPlugin : BasePlugin
 
         if (!hasWeapon)
         {
-            Task.Delay(300).ContinueWith(_ =>
+            AddTimer(0.3f, () =>
             {
                 if (player.IsValid && player.Pawn?.Value != null)
                     player.GiveNamedItem("weapon_ak47");
@@ -1098,8 +1098,8 @@ public class RetakesPlugin : BasePlugin
         _hasMutedVoices.Remove(player);
 
         if (player.IsBot || !player.IsValid) return HookResult.Continue;
-        
-        var db = new Modules.Database.MongoDB();
+
+        var db = Modules.Database.MongoDB.Instance;
         db.SetPlayerOnlineStatus(player.SteamID, false, player.IpAddress);
 
         HandleBots();
