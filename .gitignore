@@ -5,3 +5,4 @@ tmp/
 plugins_source/**/build/
 plugins_source/**/obj/
 plugins_source/**/bin/
+server
