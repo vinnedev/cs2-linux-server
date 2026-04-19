@@ -31,12 +31,10 @@ COPY components /app/components
 COPY scripts /app/scripts
 #COPY steamcmd /app/steamcmd
 COPY .env /app/.env
-COPY .steam /app/.steam
 
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
-RUN mkdir -p /root/.steam && \
-    cp -r /app/.steam /root/.steam
+RUN mkdir -p /root/.steam/sdk32 /root/.steam/sdk64
 
 
 CMD ["/app/start.sh"]
