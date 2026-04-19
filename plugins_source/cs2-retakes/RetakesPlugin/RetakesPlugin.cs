@@ -1,1186 +1,406 @@
-﻿using CounterStrikeSharp.API;
+using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
-using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Core.Capabilities;
-using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
-using CounterStrikeSharp.API.Modules.Entities.Constants;
-using CounterStrikeSharp.API.Modules.Utils;
-using RetakesPlugin.Modules;
-using RetakesPluginShared.Enums;
-using RetakesPlugin.Modules.Configs;
-using RetakesPlugin.Modules.Managers;
 using RetakesPluginShared;
-using RetakesPluginShared.Events;
-using Helpers = RetakesPlugin.Modules.Helpers;
+using System.Text.Json;
+
+using RetakesPlugin.Configs;
+using RetakesPlugin.Configs.JsonConverters;
+using RetakesPlugin.Events;
+using RetakesPlugin.Managers;
+using RetakesPlugin.Modules;
+using RetakesPlugin.Services;
+using RetakesPlugin.Utils;
+
+using RetakesPlugin.Commands.Admin;
+using RetakesPlugin.Commands.MapConfig;
+using RetakesPlugin.Commands.Player;
+using RetakesPlugin.Commands.SpawnEditor;
 
 namespace RetakesPlugin;
 
-[MinimumApiVersion(220)]
-public class RetakesPlugin : BasePlugin
+[MinimumApiVersion(345)]
+public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 {
-    private const string Version = "2.2.0";
+    public const string Version = "3.0.3";
 
-    #region Plugin info
+    #region Plugin Info
     public override string ModuleName => "Retakes Plugin";
     public override string ModuleVersion => Version;
     public override string ModuleAuthor => "B3none";
     public override string ModuleDescription => "https://github.com/b3none/cs2-retakes";
     #endregion
 
-    #region Constants
-    public static readonly string LogPrefix = $"[Retakes {Version}] ";
+    #region Configuration
+    public required BaseConfigs Config { get; set; }
 
-    // These two static variables are overwritten in the Load / OnMapStart with config values.
-    public static string MessagePrefix = $"[{ChatColors.Green}Retakes{ChatColors.White}] ";
-    public static bool IsDebugMode;
+    public void OnConfigParsed(BaseConfigs config)
+    {
+        Config = config;
+        Utils.Logger.Initialize(Config.Debug.IsDebugMode);
+        Utils.Logger.LogInfo("Main", "Configuration parsed successfully");
+    }
     #endregion
 
-    #region Helpers
-    private Translator _translator;
+    #region Services & Managers
+    private readonly Random _random = new();
+    private readonly JsonSerializerOptions _jsonOptions;
     private GameManager? _gameManager;
     private SpawnManager? _spawnManager;
     private BreakerManager? _breakerManager;
+    private MapConfigService? _mapConfigService;
+    private AllocationService? _allocationService;
+    private AnnouncementService? _announcementService;
+    private SoloBotService? _soloBotService;
+    private PlayerAccountStore? _playerAccountStore;
+    private RoundEventHandlers? _roundEventHandlers;
+    private PlayerEventHandlers? _playerEventHandlers;
+    private bool _hasCheckedPlayerAccountStore;
 
+    public MapConfigService? MapConfigService => _mapConfigService;
+    public SpawnManager? SpawnManager => _spawnManager;
+    #endregion
+
+    #region Commands
+    // Admin Commands
+    private ForceBombsiteCommand? _forceBombsiteCommand;
+    private ForceBombsiteStopCommand? _forceBombsiteStopCommand;
+    private ScrambleCommand? _scrambleCommand;
+    private DebugQueuesCommand? _debugQueuesCommand;
+
+    // Map Config Commands
+    private MapConfigCommand? _mapConfigCommand;
+    private MapConfigsCommand? _mapConfigsCommand;
+
+    // Player Commands
+    private VoicesCommand? _voicesCommand;
+
+    // Spawn Editor Commands
+    private ShowSpawnsCommand? _showSpawnsCommand;
+    private AddSpawnCommand? _addSpawnCommand;
+    private RemoveSpawnCommand? _removeSpawnCommand;
+    private NearestSpawnCommand? _nearestSpawnCommand;
+    private HideSpawnsCommand? _hideSpawnsCommand;
+    #endregion
+
+    #region Capabilities
     public static PluginCapability<IRetakesPluginEventSender> RetakesPluginEventSenderCapability { get; } = new("retakes_plugin:event_sender");
     #endregion
 
-    #region Configs
-    private MapConfig? _mapConfig;
-    private RetakesConfig? _retakesConfig;
-    #endregion
-
     #region State
-    private Bombsite _currentBombsite = Bombsite.A;
-    private CCSPlayerController? _planter;
-    private CsTeam _lastRoundWinner = CsTeam.None;
-    private Bombsite? _showingSpawnsForBombsite;
-    private Bombsite? _forcedBombsite;
-
-    // TODO: We should really store this in SQLite, but for now we'll just store it in memory.
     private readonly HashSet<CCSPlayerController> _hasMutedVoices = [];
-
-    private void ResetState()
-    {
-        _currentBombsite = Bombsite.A;
-        _planter = null;
-        _lastRoundWinner = CsTeam.None;
-        _showingSpawnsForBombsite = null;
-    }
     #endregion
 
     public RetakesPlugin()
     {
-        var pt_BR = LanguageLoader.LoadTranslations("pt-BR.json");
-        _translator = new Translator(pt_BR);
+        _jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters =
+            {
+                new VectorJsonConverter(),
+                new QAngleJsonConverter()
+            }
+        };
     }
 
     public override void Load(bool hotReload)
     {
-        var pt_BR = LanguageLoader.LoadTranslations("pt-BR.json");
-        _translator = new Translator(pt_BR);
+        Utils.Logger.LogInfo("Main", "Plugin loading...");
 
-        MessagePrefix = _translator["retakes.prefix"];
-
-        Helpers.Debug($"Plugin loaded!");
-
-        RegisterListener<Listeners.OnMapStart>(mapName =>
-        {
-            OnMapStart(mapName);
-        });
-
+        RegisterListener<Listeners.OnMapStart>(OnMapStart);
         AddCommandListener("jointeam", OnCommandJoinTeam);
 
         var retakesPluginEventSender = new RetakesPluginEventSender();
         Capabilities.RegisterPluginCapability(RetakesPluginEventSenderCapability, () => retakesPluginEventSender);
 
+        // Register event handlers
+        RegisterEventHandler<EventPlayerConnectFull>(OnPlayerConnectFull);
+        RegisterEventHandler<EventRoundPrestart>(OnRoundPreStart);
+        RegisterEventHandler<EventRoundStart>(OnRoundStart);
+        RegisterEventHandler<EventRoundPoststart>(OnRoundPostStart);
+        RegisterEventHandler<EventRoundFreezeEnd>(OnRoundFreezeEnd);
+        RegisterEventHandler<EventRoundEnd>(OnRoundEnd);
+        RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+        RegisterEventHandler<EventPlayerDeath>(OnPlayerDeath);
+        RegisterEventHandler<EventBombPlanted>(OnBombPlanted, HookMode.Pre);
+        RegisterEventHandler<EventBombDefused>(OnBombDefused);
+        RegisterEventHandler<EventPlayerDisconnect>(OnPlayerDisconnect, HookMode.Pre);
+        RegisterEventHandler<EventPlayerTeam>(OnPlayerTeam, HookMode.Pre);
+
         if (hotReload)
         {
-            Server.PrintToChatAll($"{LogPrefix}Update detected, restarting map...");
+            Utils.Logger.LogServer($"Update detected, restarting map...");
             Server.ExecuteCommand($"map {Server.MapName}");
         }
+
+        Utils.Logger.LogInfo("Main", "Plugin loaded successfully");
     }
 
-    #region Commands
-    [ConsoleCommand("css_mapconfig", "Forces a specific map config file to load.")]
-    [ConsoleCommand("css_setmapconfig", "Forces a specific map config file to load.")]
-    [ConsoleCommand("css_loadmapconfig", "Forces a specific map config file to load.")]
-    [CommandHelper(minArgs: 1, usage: "[filename]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
-    [RequiresPermissions("@css/root")]
-    public void OnCommandMapConfig(CCSPlayerController? player, CommandInfo commandInfo)
+    #region Map Initialization
+    private void OnMapStart(string mapName)
     {
-        if (player != null && !Helpers.IsValidPlayer(player))
-        {
-            return;
-        }
+        Utils.Logger.LogInfo("MapStart", $"Map started: {mapName}");
 
-        var mapConfigDirectory = Path.Combine(ModuleDirectory, "map_config");
-
-        if (!Directory.Exists(mapConfigDirectory))
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}No map configs found.");
-            return;
-        }
-
-        var mapConfigFileName = commandInfo.GetArg(1).Trim().Replace(".json", "");
-
-        var mapConfigFilePath = Path.Combine(mapConfigDirectory, $"{mapConfigFileName}.json");
-
-        if (!File.Exists(mapConfigFilePath))
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}Map config file not found.");
-            return;
-        }
-
-        OnMapStart(Server.MapName, mapConfigFileName);
-
-        commandInfo.ReplyToCommand($"{MessagePrefix}The new map config has been successfully loaded.");
-    }
-
-    [ConsoleCommand("css_mapconfigs", "Displays a list of available map configs.")]
-    [ConsoleCommand("css_viewmapconfigs", "Displays a list of available map configs.")]
-    [ConsoleCommand("css_listmapconfigs", "Displays a list of available map configs.")]
-    [CommandHelper(whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
-    [RequiresPermissions("@css/root")]
-    public void OnCommandMapConfigs(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        if (player != null && !Helpers.IsValidPlayer(player))
-        {
-            return;
-        }
-
-        var mapConfigDirectory = Path.Combine(ModuleDirectory, "map_config");
-
-        var files = Directory.GetFiles(mapConfigDirectory);
-
-        // organise files alphabetically
-        Array.Sort(files);
-
-        if (!Directory.Exists(mapConfigDirectory) || files.Length == 0)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}No map configs found.");
-            return;
-        }
-
-        foreach (var file in files)
-        {
-            var transformedFile = file
-                .Replace($"{mapConfigDirectory}/", "")
-                .Replace(".json", "");
-
-            commandInfo.ReplyToCommand($"{MessagePrefix}!mapconfig {transformedFile}");
-            player?.PrintToConsole($"{MessagePrefix}!mapconfig {transformedFile}");
-        }
-
-        commandInfo.ReplyToCommand($"{MessagePrefix}A list of available map configs has been outputted above.");
-    }
-
-    [ConsoleCommand("css_forcebombsite", "Force the retakes to occur from a single bombsite.")]
-    [CommandHelper(minArgs: 1, usage: "[A/B]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
-    [RequiresPermissions("@css/root")]
-    public void OnCommandForceBombsite(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        if (player != null && !Helpers.IsValidPlayer(player))
-        {
-            return;
-        }
-
-        var bombsite = commandInfo.GetArg(1).ToUpper();
-        if (bombsite != "A" && bombsite != "B")
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}You must specify a bombsite [A / B].");
-            return;
-        }
-
-        _forcedBombsite = bombsite == "A" ? Bombsite.A : Bombsite.B;
-
-        commandInfo.ReplyToCommand($"{MessagePrefix}The bombsite will now be forced to {_forcedBombsite}.");
-    }
-
-    [ConsoleCommand("css_forcebombsitestop", "Clear the forced bombsite and return back to normal.")]
-    [CommandHelper(whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
-    [RequiresPermissions("@css/root")]
-    public void OnCommandForceBombsiteStop(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        if (player != null && !Helpers.IsValidPlayer(player))
-        {
-            return;
-        }
-
-        _forcedBombsite = null;
-
-        commandInfo.ReplyToCommand($"{MessagePrefix}The bombsite will no longer be forced.");
-    }
-
-    [ConsoleCommand("css_showspawns", "Show the spawns for the specified bombsite.")]
-    [ConsoleCommand("css_spawns", "Show the spawns for the specified bombsite.")]
-    [ConsoleCommand("css_edit", "Show the spawns for the specified bombsite.")]
-    [CommandHelper(minArgs: 1, usage: "[A/B]", whoCanExecute: CommandUsage.CLIENT_ONLY)]
-    [RequiresPermissions("@css/root")]
-    public void OnCommandShowSpawns(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        if (player != null && !Helpers.IsValidPlayer(player))
-        {
-            return;
-        }
-
-        var bombsite = commandInfo.GetArg(1).ToUpper();
-        if (bombsite != "A" && bombsite != "B")
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}You must specify a bombsite [A / B].");
-            return;
-        }
-
-        if (_mapConfig == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}Map config not loaded for some reason...");
-            return;
-        }
-
-        _showingSpawnsForBombsite = bombsite == "A" ? Bombsite.A : Bombsite.B;
-
-        // This will fire the OnRoundStart event listener
-        Server.ExecuteCommand("mp_warmup_start");
-        Server.ExecuteCommand("mp_warmuptime 120");
-        Server.ExecuteCommand("mp_warmup_pausetimer 1");
-    }
-
-    [ConsoleCommand("css_add", "Creates a new retakes spawn for the bombsite currently shown.")]
-    [ConsoleCommand("css_addspawn", "Creates a new retakes spawn for the bombsite currently shown.")]
-    [ConsoleCommand("css_new", "Creates a new retakes spawn for the bombsite currently shown.")]
-    [ConsoleCommand("css_newspawn", "Creates a new retakes spawn for the bombsite currently shown.")]
-    [CommandHelper(minArgs: 1, usage: "[T/CT] [Y/N can be planter]", whoCanExecute: CommandUsage.CLIENT_ONLY)]
-    [RequiresPermissions("@css/root")]
-    public void OnCommandAddSpawn(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        if (_showingSpawnsForBombsite == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}You can't add a spawn if you're not showing the spawns.");
-            return;
-        }
-
-        if (_spawnManager == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}Spawn manager not loaded for some reason...");
-            return;
-        }
-
-        if (!Helpers.DoesPlayerHaveAlivePawn(player))
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}You must have an alive player pawn.");
-            return;
-        }
-
-        var team = commandInfo.GetArg(1).ToUpper();
-        if (team != "T" && team != "CT")
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}You must specify a team [T / CT] - [Value: {team}].");
-            return;
-        }
-
-        var canBePlanterInput = commandInfo.GetArg(2).ToUpper();
-        if (!string.IsNullOrWhiteSpace(canBePlanterInput) && canBePlanterInput != "Y" && canBePlanterInput != "N")
-        {
-            commandInfo.ReplyToCommand(
-                $"{MessagePrefix}Incorrect value passed for can be a planter [Y / N] - [Value: {canBePlanterInput}].");
-            return;
-        }
-
-        var spawns = _spawnManager.GetSpawns((Bombsite)_showingSpawnsForBombsite);
-
-        var closestDistance = 9999.9;
-
-        foreach (var spawn in spawns)
-        {
-            var distance = Helpers.GetDistanceBetweenVectors(spawn.Vector, player!.PlayerPawn.Value!.AbsOrigin!);
-
-            if (distance > 128.0 || distance > closestDistance)
-            {
-                continue;
-            }
-
-            closestDistance = distance;
-        }
-
-        if (closestDistance <= 72)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}You are too close to another spawn, move away and try again.");
-            return;
-        }
-
-        var newSpawn = new Spawn(
-            vector: player!.PlayerPawn.Value!.AbsOrigin!,
-            qAngle: player.PlayerPawn.Value!.AbsRotation!
-        )
-        {
-            Team = team == "T" ? CsTeam.Terrorist : CsTeam.CounterTerrorist,
-            CanBePlanter = team == "T" && !string.IsNullOrWhiteSpace(canBePlanterInput)
-                ? canBePlanterInput == "Y"
-                : player.PlayerPawn.Value.InBombZoneTrigger,
-            Bombsite = (Bombsite)_showingSpawnsForBombsite
-        };
-        Helpers.ShowSpawn(newSpawn);
-
-        if (_mapConfig == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}Map config not loaded for some reason...");
-            return;
-        }
-
-        var didAddSpawn = _mapConfig.AddSpawn(newSpawn);
-        if (didAddSpawn)
-        {
-            _spawnManager.CalculateMapSpawns();
-        }
-
-        commandInfo.ReplyToCommand($"{MessagePrefix}{(didAddSpawn ? "Spawn added" : "Error adding spawn")}");
-    }
-
-    [ConsoleCommand("css_remove", "Deletes the nearest retakes spawn.")]
-    [ConsoleCommand("css_removespawn", "Deletes the nearest retakes spawn.")]
-    [ConsoleCommand("css_delete", "Deletes the nearest retakes spawn.")]
-    [ConsoleCommand("css_deletespawn", "Deletes the nearest retakes spawn.")]
-    [CommandHelper(whoCanExecute: CommandUsage.CLIENT_ONLY)]
-    [RequiresPermissions("@css/root")]
-    public void OnCommandRemoveSpawn(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        if (_showingSpawnsForBombsite == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}You can't remove a spawn if you're not showing the spawns.");
-            return;
-        }
-
-        if (_spawnManager == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}Spawn manager not loaded for some reason...");
-            return;
-        }
-
-        if (_mapConfig == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}Map config not loaded for some reason...");
-            return;
-        }
-
-        if (!Helpers.DoesPlayerHaveAlivePawn(player))
-        {
-            return;
-        }
-
-        var spawns = _spawnManager.GetSpawns((Bombsite)_showingSpawnsForBombsite);
-
-        if (spawns.Count == 0)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}No spawns found.");
-            return;
-        }
-
-        var closestDistance = 9999.9;
-        Spawn? closestSpawn = null;
-
-        foreach (var spawn in spawns)
-        {
-            var distance = Helpers.GetDistanceBetweenVectors(spawn.Vector, player!.PlayerPawn.Value!.AbsOrigin!);
-
-            if (distance > 128.0 || distance > closestDistance)
-            {
-                continue;
-            }
-
-            closestDistance = distance;
-            closestSpawn = spawn;
-        }
-
-        if (closestSpawn == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}No spawns found within 128 units.");
-            return;
-        }
-
-        // Remove the beam entity that is showing for the closest spawn.
-        var beamEntities = Utilities.FindAllEntitiesByDesignerName<CBeam>("beam");
-        foreach (var beamEntity in beamEntities)
-        {
-            if (beamEntity.AbsOrigin == null)
-            {
-                continue;
-            }
-
-            if (
-                beamEntity.AbsOrigin.Z - closestSpawn.Vector.Z == 0 &&
-                beamEntity.AbsOrigin.X - closestSpawn.Vector.X == 0 &&
-                beamEntity.AbsOrigin.Y - closestSpawn.Vector.Y == 0
-            )
-            {
-                beamEntity.Remove();
-            }
-        }
-
-        var didRemoveSpawn = _mapConfig.RemoveSpawn(closestSpawn);
-        if (didRemoveSpawn)
-        {
-            _spawnManager.CalculateMapSpawns();
-        }
-
-        commandInfo.ReplyToCommand($"{MessagePrefix}{(didRemoveSpawn ? "Spawn removed" : "Error removing spawn")}");
-    }
-
-    [ConsoleCommand("css_nearestspawn", "Goes to nearest retakes spawn.")]
-    [ConsoleCommand("css_nearest", "Goes to nearest retakes spawn.")]
-    [CommandHelper(whoCanExecute: CommandUsage.CLIENT_ONLY)]
-    [RequiresPermissions("@css/root")]
-    public void OnCommandNearestSpawn(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        if (_showingSpawnsForBombsite == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}You can't remove a spawn if you're not showing the spawns.");
-            return;
-        }
-
-        if (_spawnManager == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}Spawn manager not loaded for some reason...");
-            return;
-        }
-
-        if (_mapConfig == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}Map config not loaded for some reason...");
-            return;
-        }
-
-        if (!Helpers.DoesPlayerHaveAlivePawn(player))
-        {
-            return;
-        }
-
-        var spawns = _spawnManager.GetSpawns((Bombsite)_showingSpawnsForBombsite);
-
-        if (spawns.Count == 0)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}No spawns found.");
-            return;
-        }
-
-        var closestDistance = 9999.9;
-        Spawn? closestSpawn = null;
-
-        foreach (var spawn in spawns)
-        {
-            var distance = Helpers.GetDistanceBetweenVectors(spawn.Vector, player!.PlayerPawn.Value!.AbsOrigin!);
-
-            if (distance > 128.0 || distance > closestDistance)
-            {
-                continue;
-            }
-
-            closestDistance = distance;
-            closestSpawn = spawn;
-        }
-
-        if (closestSpawn == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}No spawns found within 128 units.");
-            return;
-        }
-
-        player!.PlayerPawn.Value!.Teleport(closestSpawn.Vector, closestSpawn.QAngle, new Vector());
-        commandInfo.ReplyToCommand($"{MessagePrefix}Teleported to nearest spawn");
-    }
-
-    [ConsoleCommand("css_hidespawns", "Exits the spawn editing mode.")]
-    [ConsoleCommand("css_done", "Exits the spawn editing mode.")]
-    [ConsoleCommand("css_exitedit", "Exits the spawn editing mode.")]
-    [CommandHelper(whoCanExecute: CommandUsage.CLIENT_ONLY)]
-    [RequiresPermissions("@css/root")]
-    public void OnCommandHideSpawns(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        _showingSpawnsForBombsite = null;
-        Server.ExecuteCommand("mp_warmup_end");
-    }
-
-    [ConsoleCommand("css_scramble", "Sets teams to scramble on the next round.")]
-    [ConsoleCommand("css_scrambleteams", "Sets teams to scramble on the next round.")]
-    [CommandHelper(whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
-    [RequiresPermissions("@css/admin")]
-    public void OnCommandScramble(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        if (_gameManager == null)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}Game manager not loaded.");
-            return;
-        }
-
-        _gameManager.ScrambleNextRound(player);
-    }
-
-    [ConsoleCommand("css_debugqueues", "Prints the state of the queues to the console.")]
-    [CommandHelper(whoCanExecute: CommandUsage.SERVER_ONLY)]
-    [RequiresPermissions("@css/root")]
-    public void OnCommandDebugState(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        if (_gameManager == null)
-        {
-            Helpers.Debug($"Game manager not loaded.");
-            return;
-        }
-
-        _gameManager.QueueManager.DebugQueues(true);
-    }
-
-    [ConsoleCommand("css_voices", "Toggles whether or not you want to hear bombsite voice announcements.")]
-    [CommandHelper(whoCanExecute: CommandUsage.CLIENT_ONLY)]
-    public void OnCommandVoices(CCSPlayerController? player, CommandInfo commandInfo)
-    {
-        if (!Helpers.IsValidPlayer(player))
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}You must be a valid player to use this command.");
-            return;
-        }
-
-        if (RetakesConfig.IsLoaded(_retakesConfig) && !_retakesConfig!.RetakesConfigData!.EnableBombsiteAnnouncementVoices)
-        {
-            commandInfo.ReplyToCommand($"{MessagePrefix}Bombsite voice announcements are permanently disabled on this server.");
-            return;
-        }
-
-        var didMute = false;
-        if (!_hasMutedVoices.Contains(player))
-        {
-            didMute = true;
-            _hasMutedVoices.Add(player);
-        }
-        else
-        {
-            _hasMutedVoices.Remove(player);
-        }
-
-        commandInfo.ReplyToCommand($"{MessagePrefix}{_translator["retakes.voices.toggle", didMute ? $"{ChatColors.Red}disabled{ChatColors.White}" : $"{ChatColors.Green}enabled{ChatColors.White}"]}");
-    }
-    #endregion
-
-    #region Listeners
-    private void OnMapStart(string mapName, string? customMapConfig = null)
-    {
-        Helpers.Debug("OnMapStart listener triggered!");
-
-        ResetState();
+        SpawnService.ClearAllSpawnModels();
 
         AddTimer(1.0f, () =>
         {
-            // Execute the retakes configuration.
-            Helpers.ExecuteRetakesConfiguration(ModuleDirectory);
+            ServerHelper.ExecuteRetakesConfiguration(ModuleDirectory);
         });
 
-        // If we don't have a map config loaded, load it.
-        if (!MapConfig.IsLoaded(_mapConfig, customMapConfig ?? mapName))
-        {
-            _mapConfig = new MapConfig(ModuleDirectory, customMapConfig ?? mapName);
-            _mapConfig.Load();
-        }
-
-        if (!RetakesConfig.IsLoaded(_retakesConfig))
-        {
-            _retakesConfig = new RetakesConfig(ModuleDirectory);
-            _retakesConfig.Load();
-        }
-
-        if (_mapConfig == null)
-        {
-            throw new Exception("Map config is null");
-        }
-
-        _spawnManager = new SpawnManager(_mapConfig);
-
-        _gameManager = new GameManager(
-            _translator,
-            new QueueManager(
-                _translator,
-                _retakesConfig?.RetakesConfigData?.MaxPlayers,
-                _retakesConfig?.RetakesConfigData?.TerroristRatio,
-                _retakesConfig?.RetakesConfigData?.QueuePriorityFlag,
-                _retakesConfig?.RetakesConfigData?.ShouldForceEvenTeamsWhenPlayerCountIsMultipleOf10,
-                _retakesConfig?.RetakesConfigData?.ShouldPreventTeamChangesMidRound
-            ),
-            _retakesConfig?.RetakesConfigData?.RoundsToScramble,
-            _retakesConfig?.RetakesConfigData?.IsScrambleEnabled,
-            _retakesConfig?.RetakesConfigData?.ShouldRemoveSpectators,
-            _retakesConfig?.RetakesConfigData?.IsBalanceEnabled
-        );
-
-        _breakerManager = new BreakerManager(
-            _retakesConfig?.RetakesConfigData?.ShouldBreakBreakables,
-            _retakesConfig?.RetakesConfigData?.ShouldOpenDoors
-        );
-
-        IsDebugMode = _retakesConfig?.RetakesConfigData?.IsDebugMode ?? false;
+        InitializeServices(mapName);
     }
 
-    private void HandleBots()
+    private void InitializeServices(string mapName, string? customMapConfig = null)
     {
-        var players = Utilities.GetPlayers();
-        var humanPlayers = players.Where(p => p.IsValid && !p.IsBot && p.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist).ToList();
-        var botPlayers = players.Where(p => p.IsValid && p.IsBot).ToList();
-
-        if (humanPlayers.Count == 1 && botPlayers.Count == 0)
+        try
         {
-            // Configurações para bots hard e armados
-            Server.ExecuteCommand("bot_difficulty 3");          // 0 - easy, 1 - normal, 2 - hard, 3 - expert
-            Server.ExecuteCommand("bot_quota_mode fill");       // Preenche até a quota
-            Server.ExecuteCommand("bot_quota 1");               // 1 bot
-            Server.ExecuteCommand("bot_join_after_player 0");   // Bots podem entrar mesmo sem jogadores
-            Server.ExecuteCommand("bot_allow_grenades 1");
-            Server.ExecuteCommand("bot_allow_pistols 1");
-            Server.ExecuteCommand("bot_allow_sub_machine_guns 1");
-            Server.ExecuteCommand("bot_allow_rifles 1");
-            Server.ExecuteCommand("bot_allow_snipers 1");
-            Server.ExecuteCommand("bot_allow_shotguns 1");
-            Server.ExecuteCommand("bot_allow_machine_guns 1");
-            Server.ExecuteCommand("bot_dont_shoot 0");
+            // Initialize MapConfigService
+            _mapConfigService = new MapConfigService(ModuleDirectory, customMapConfig ?? mapName, _jsonOptions);
+            _mapConfigService.Load();
 
-            Server.ExecuteCommand("bot_add");                   // Adiciona o bot
+            // Initialize Managers
+            _spawnManager = new SpawnManager(_mapConfigService);
+            _allocationService = new AllocationService(_random);
 
-            Server.PrintToConsole("[Retakes] Bot hard adicionado como companheiro temporário.");
-        }
-        else if (humanPlayers.Count >= 2 && botPlayers.Count > 0)
-        {
-            foreach (var bot in botPlayers)
+            _gameManager = new GameManager(
+                this,
+                new QueueManager(
+                    this,
+                    Config.Game.MaxPlayers,
+                    Config.Team.TerroristRatio,
+                    Config.Queue.GetPriorityFlags(),
+                    Config.Queue.GetImmunityFlags(),
+                    Config.Team.ShouldForceEvenTeamsWhenPlayerCountIsMultipleOf10,
+                    Config.Team.ShouldPreventTeamChangesMidRound
+                ),
+                Config.Team.RoundsToScramble,
+                Config.Team.IsScrambleEnabled,
+                Config.Queue.ShouldRemoveSpectators,
+                Config.Team.IsBalanceEnabled
+            );
+
+            _breakerManager = new BreakerManager(
+                Config.Game.ShouldBreakBreakables,
+                Config.Game.ShouldOpenDoors
+            );
+
+            _announcementService = new AnnouncementService(
+                this,
+                _random,
+                _hasMutedVoices,
+                Config.MapConfig.EnableBombsiteAnnouncementVoices,
+                Config.MapConfig.EnableBombsiteAnnouncementCenter
+            );
+
+            _soloBotService = new SoloBotService();
+            if (!_hasCheckedPlayerAccountStore)
             {
-                Server.ExecuteCommand($"kick \"{bot.PlayerName}\"");
-                Server.PrintToConsole($"[Retakes] Bot {bot.PlayerName} removido após novo jogador entrar.");
+                _playerAccountStore = PlayerAccountStore.TryCreate();
+                _hasCheckedPlayerAccountStore = true;
             }
 
-            Server.ExecuteCommand("bot_quota 0"); // Impede bots adicionais
-        }
-    }
-    
-    [GameEventHandler]
-    public HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
-    {
-        var player = @event.Userid;
+            // Initialize Event Handlers
+            _roundEventHandlers = new RoundEventHandlers(
+                this,
+                _gameManager,
+                _spawnManager,
+                _breakerManager,
+                _allocationService,
+                _announcementService,
+                _soloBotService,
+                Config.Bomb.IsAutoPlantEnabled,
+                Config.Game.EnableFallbackAllocation,
+                Config.MapConfig.EnableFallbackBombsiteAnnouncement,
+                _random
+            );
 
-        if (!Helpers.IsValidPlayer(player))
-        {
-            return HookResult.Continue;
-        }
+            _playerEventHandlers = new PlayerEventHandlers(this, _gameManager, _hasMutedVoices, _playerAccountStore, _soloBotService);
 
-        var db = Modules.Database.MongoDB.Instance;
-        var account = db.GetPlayerBySteamId(player.SteamID);
+            // Initialize Commands
+            _forceBombsiteCommand = new ForceBombsiteCommand(this, _roundEventHandlers);
+            _forceBombsiteStopCommand = new ForceBombsiteStopCommand(this, _roundEventHandlers);
+            _scrambleCommand = new ScrambleCommand(this, _gameManager);
+            _debugQueuesCommand = new DebugQueuesCommand(this, _gameManager);
 
-        if (account == null)
-        {
-            player.PrintToConsole($"{LogPrefix}Você ainda não tem conta cadastrada. Sem prioridade de fila.");
-            db.RegisterPlayer(player.SteamID, player.PlayerName, player.IpAddress);
-        }
-
-        if (account?.Vip != null && (!account?.Vip.IsActive ?? false))
-        {
-            player.PrintToConsole($"{LogPrefix}Você não é VIP. Sem prioridade de fila.");
-        }
-
-        if (account?.Vip?.Expiration <= DateTime.UtcNow)
-        {
-            player.PrintToConsole($"{LogPrefix}Seu VIP expirou em {account.Vip?.Expiration:u}. Sem prioridade de fila.");
-
-            db.SetPlayerOnlineStatus(player.SteamID, true, player.IpAddress);
-            return HookResult.Continue;
-        }
-
-        var grant = _retakesConfig?.RetakesConfigData?.QueuePriorityFlag.Split(",")[0].Trim() ?? "@css/vip";
-        player.PrintToConsole($"{LogPrefix}Você é VIP ativo até {account?.Vip?.Expiration:u}. Prioridade de fila {grant} aplicada.");
-        AdminManager.AddPlayerPermissions(player, grant);
-
-        db.SetPlayerOnlineStatus(player.SteamID, true, player.IpAddress);
-        
-        return HookResult.Continue;
-    }
-
-    
-
-    [GameEventHandler]
-    public HookResult OnRoundPreStart(EventRoundPrestart @event, GameEventInfo info)
-    {
-        // If we are in warmup, skip.
-        if (Helpers.GetGameRules().WarmupPeriod)
-        {
-            Helpers.Debug($"Warmup round, skipping.");
-            return HookResult.Continue;
-        }
-
-        if (_gameManager == null)
-        {
-            Helpers.Debug($"Game manager not loaded.");
-            return HookResult.Continue;
-        }
-
-        // Reset round teams to allow team changes.
-        _gameManager.QueueManager.ClearRoundTeams();
-
-        // Update Queue status
-        Helpers.Debug($"Updating queues...");
-        _gameManager.QueueManager.DebugQueues(true);
-        _gameManager.QueueManager.Update();
-        _gameManager.QueueManager.DebugQueues(false);
-        Helpers.Debug($"Updated queues.");
-
-        Helpers.Debug($"Calling GameManager.OnRoundPreStart({_lastRoundWinner})");
-        _gameManager.OnRoundPreStart(_lastRoundWinner);
-        Helpers.Debug($"GameManager.OnRoundPreStart call complete");
-
-        // Set round teams to prevent team changes mid round
-        _gameManager.QueueManager.SetRoundTeams();
-
-        return HookResult.Continue;
-    }
-
-    [GameEventHandler]
-    public HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
-    {
-        // TODO: FIGURE OUT WHY THE FUCK I NEED TO DO THIS
-        var weirdAliveSpectators = Utilities.GetPlayers()
-            .Where(x => x is { TeamNum: < (int)CsTeam.Terrorist, PawnIsAlive: true });
-        foreach (var weirdAliveSpectator in weirdAliveSpectators)
-        {
-            // I **think** it's caused by auto team balance being on, so turn it off
-            Server.ExecuteCommand("mp_autoteambalance 0");
-            weirdAliveSpectator.CommitSuicide(false, true);
-        }
-
-        // If we are in warmup, skip.
-        if (Helpers.GetGameRules().WarmupPeriod)
-        {
-            Helpers.Debug($"Warmup round, skipping.");
-
-            if (_mapConfig != null)
+            _mapConfigCommand = new MapConfigCommand(this, ModuleDirectory, (configName) =>
             {
-                Helpers.ShowSpawns(_mapConfig.GetSpawnsClone(), _showingSpawnsForBombsite);
-            }
-
-            return HookResult.Continue;
-        }
-
-        if (_gameManager == null)
-        {
-            Helpers.Debug($"Game manager not loaded.");
-            return HookResult.Continue;
-        }
-
-        if (_spawnManager == null)
-        {
-            Helpers.Debug($"Spawn manager not loaded.");
-            return HookResult.Continue;
-        }
-
-        // Reset round state.
-        _breakerManager?.Handle();
-        _currentBombsite = _forcedBombsite ?? (Helpers.Random.Next(0, 2) == 0 ? Bombsite.A : Bombsite.B);
-        _gameManager.ResetPlayerScores();
-
-        Helpers.Debug("Clearing _showingSpawnsForBombsite");
-        _showingSpawnsForBombsite = null;
-
-        _planter = _spawnManager.HandleRoundSpawns(_currentBombsite, _gameManager.QueueManager.ActivePlayers);
-
-        if (!RetakesConfig.IsLoaded(_retakesConfig) ||
-            _retakesConfig!.RetakesConfigData!.EnableFallbackBombsiteAnnouncement)
-        {
-            AnnounceBombsite(_currentBombsite);
-        }
-
-        RetakesPluginEventSenderCapability.Get()?.TriggerEvent(new AnnounceBombsiteEvent(_currentBombsite));
-        
-        HandleBots();
-        return HookResult.Continue;
-    }
-
-    [GameEventHandler]
-    public HookResult OnRoundPostStart(EventRoundPoststart @event, GameEventInfo info)
-    {
-        if (_gameManager == null)
-        {
-            Helpers.Debug($"Game manager not loaded.");
-            return HookResult.Continue;
-        }
-
-        // If we are in warmup, skip.
-        if (Helpers.GetGameRules().WarmupPeriod)
-        {
-            Helpers.Debug($"Warmup round, skipping.");
-            return HookResult.Continue;
-        }
-
-        Helpers.Debug($"Trying to loop valid active players.");
-        foreach (var player in _gameManager.QueueManager.ActivePlayers.Where(Helpers.IsValidPlayer))
-        {
-            Helpers.Debug($"[{player.PlayerName}] Handling allocation...");
-
-            if (!Helpers.IsValidPlayer(player))
-            {
-                continue;
-            }
-
-            // Strip the player of all of their weapons and the bomb before any spawn / allocation occurs.
-            Helpers.RemoveHelmetAndHeavyArmour(player);
-            player.RemoveWeapons();
-
-            if (player == _planter && RetakesConfig.IsLoaded(_retakesConfig) &&
-                !_retakesConfig!.RetakesConfigData!.IsAutoPlantEnabled)
-            {
-                Helpers.Debug($"Player is planter and auto plant is disabled, allocating bomb.");
-                Helpers.GiveAndSwitchToBomb(player);
-            }
-
-            if (!RetakesConfig.IsLoaded(_retakesConfig) ||
-                _retakesConfig!.RetakesConfigData!.EnableFallbackAllocation)
-            {
-                Helpers.Debug($"Allocating...");
-                AllocationManager.Allocate(player);
-            }
-            else
-            {
-                Helpers.Debug($"Fallback allocation disabled, skipping.");
-            }
-        }
-
-        RetakesPluginEventSenderCapability.Get()?.TriggerEvent(new AllocateEvent());
-
-        return HookResult.Continue;
-    }
-
-    [GameEventHandler]
-    public HookResult OnRoundFreezeEnd(EventRoundFreezeEnd @event, GameEventInfo info)
-    {
-        // If we are in warmup, skip.
-        if (Helpers.GetGameRules().WarmupPeriod)
-        {
-            Helpers.Debug($"Warmup round, skipping.");
-            return HookResult.Continue;
-        }
-
-        if (Helpers.GetCurrentNumPlayers(CsTeam.Terrorist) > 0)
-        {
-            HandleAutoPlant();
-        }
-
-        return HookResult.Continue;
-    }
-
-    [GameEventHandler]
-    public HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
-    {
-        if (_gameManager == null)
-        {
-            Helpers.Debug($"Game manager not loaded.");
-            return HookResult.Continue;
-        }
-
-        var player = @event.Userid;
-
-        if (!Helpers.IsValidPlayer(player) || !Helpers.IsPlayerConnected(player))
-        {
-            return HookResult.Continue;
-        }
-        
-        // debug and check if the player is in the queue.
-        Helpers.Debug($"[{player.PlayerName}] Checking ActivePlayers.");
-        if (!_gameManager.QueueManager.ActivePlayers.Contains(player))
-        {
-            Helpers.Debug($"[{player.PlayerName}] Checking player pawn {player.PlayerPawn.Value != null}.");
-            if (player.PlayerPawn.Value != null && player.PlayerPawn.IsValid && player.PlayerPawn.Value.IsValid)
-            {
-                Helpers.Debug(
-                    $"[{player.PlayerName}] player pawn is valid {player.PlayerPawn.IsValid} && {player.PlayerPawn.Value.IsValid}.");
-                Helpers.Debug($"[{player.PlayerName}] calling playerpawn.commitsuicide()");
-                player.PlayerPawn.Value.CommitSuicide(false, true);
-            }
-
-            Helpers.Debug($"[{player.PlayerName}] Player not in ActivePlayers, moving to spectator.");
-            if (!player.IsBot)
-            {
-                Helpers.Debug($"[{player.PlayerName}] moving to spectator.");
-                player.ChangeTeam(CsTeam.Spectator);
-            }
-            
-            if (player.IsBot && !player.IsHLTV)
-            {
-                _gameManager.QueueManager.ActivePlayers.Add(player);
-                Helpers.Debug($"[{player.PlayerName}] Force added bot to active players.");
-            }
-
-            return HookResult.Continue;
-        }
-        else
-        {
-            Helpers.Debug($"[{player.PlayerName}] Player is in ActivePlayers.");
-        }
-
-        
-        HandleBots();
-        
-        if (player.Team != CsTeam.Terrorist && player.Team != CsTeam.CounterTerrorist)
-        {
-            return HookResult.Continue;
-        }
-        
-        player.PrintToChat(" ");
-        player.PrintToChat(" ");
-        player.PrintToChat($"\x04[NEXUS] \x01 Bem-vindo ao servidor, \x04{player.PlayerName}\x01!");
-        player.PrintToChat(" \x04[NEXUS] \x01 Para usar skins, digite \x04!ws\x01 no chat.");
-        player.PrintToChat(" ");
-        return HookResult.Continue;
-    }
-
-    [GameEventHandler(HookMode.Post)]
-    public HookResult OnPlayerPostSpawn(EventPlayerSpawn @event, GameEventInfo info)
-    {
-        var player = @event.Userid;
-
-        if (!Helpers.IsValidPlayer(player) || !Helpers.IsPlayerConnected(player) || !player.IsValid || player.Pawn?.Value == null)
-        {
-            return HookResult.Continue;
-        }
-
-        var pawn = player.Pawn.Value;
-        var weapons = pawn.WeaponServices?.MyWeapons;
-        var hasWeapon = weapons != null && weapons.Any(w => w.Value != null);
-
-        if (!hasWeapon)
-        {
-            AddTimer(0.3f, () =>
-            {
-                if (player.IsValid && player.Pawn?.Value != null)
-                    player.GiveNamedItem("weapon_ak47");
+                InitializeServices(Server.MapName, configName);
             });
-        }
+            _mapConfigsCommand = new MapConfigsCommand(this, ModuleDirectory);
 
-        return HookResult.Continue;
+            _voicesCommand = new VoicesCommand(this, Config, _hasMutedVoices);
+
+            _showSpawnsCommand = new ShowSpawnsCommand(this);
+            _addSpawnCommand = new AddSpawnCommand(this, _showSpawnsCommand);
+            _removeSpawnCommand = new RemoveSpawnCommand(this, _showSpawnsCommand);
+            _nearestSpawnCommand = new NearestSpawnCommand(this, _showSpawnsCommand);
+            _hideSpawnsCommand = new HideSpawnsCommand(this, _showSpawnsCommand);
+
+            // Set command references in event handlers
+            _roundEventHandlers?.SetCommandReferences(_showSpawnsCommand);
+
+            // Register all commands
+            RegisterCommands();
+
+            Utils.Logger.LogInfo("Services", "All services initialized successfully");
+        }
+        catch (Exception ex)
+        {
+            Utils.Logger.LogException("Services", ex);
+        }
     }
 
-    
-    [GameEventHandler(HookMode.Pre)]
-    public HookResult OnBombPlanted(EventBombPlanted @event, GameEventInfo info)
+    private void RegisterCommands()
     {
-        Helpers.Debug($"OnBombPlanted event fired");
+        if (_forceBombsiteCommand == null || _forceBombsiteStopCommand == null || _scrambleCommand == null || _debugQueuesCommand == null || _mapConfigCommand == null || _mapConfigsCommand == null || _voicesCommand == null || _showSpawnsCommand == null || _addSpawnCommand == null || _removeSpawnCommand == null || _nearestSpawnCommand == null || _hideSpawnsCommand == null)
+        {
+            Utils.Logger.LogWarning("Commands", "Cannot register commands - command handlers not initialized");
+            return;
+        }
 
-        AddTimer(4.1f, () => AnnounceBombsite(_currentBombsite, true));
+        // Admin Commands
+        AddCommand("css_forcebombsite", "Force the retakes to occur from a single bombsite.", _forceBombsiteCommand.OnCommand);
+        AddCommand("css_forcebombsitestop", "Clear the forced bombsite and return back to normal.", _forceBombsiteStopCommand.OnCommand);
+        AddCommand("css_scramble", "Sets teams to scramble on the next round.", _scrambleCommand.OnCommand);
+        AddCommand("css_scrambleteams", "Sets teams to scramble on the next round.", _scrambleCommand.OnCommand);
+        AddCommand("css_debugqueues", "Prints the state of the queues to the console.", _debugQueuesCommand.OnCommand);
 
-        return HookResult.Continue;
+        // Map Config Commands
+        AddCommand("css_mapconfig", "Forces a specific map config file to load.", _mapConfigCommand.OnCommand);
+        AddCommand("css_setmapconfig", "Forces a specific map config file to load.", _mapConfigCommand.OnCommand);
+        AddCommand("css_loadmapconfig", "Forces a specific map config file to load.", _mapConfigCommand.OnCommand);
+        AddCommand("css_mapconfigs", "Displays a list of available map configs.", _mapConfigsCommand.OnCommand);
+        AddCommand("css_viewmapconfigs", "Displays a list of available map configs.", _mapConfigsCommand.OnCommand);
+        AddCommand("css_listmapconfigs", "Displays a list of available map configs.", _mapConfigsCommand.OnCommand);
+
+        // Spawn Editor Commands
+        AddCommand("css_showspawns", "Show the spawns for the specified bombsite.", _showSpawnsCommand.OnCommand);
+        AddCommand("css_spawns", "Show the spawns for the specified bombsite.", _showSpawnsCommand.OnCommand);
+        AddCommand("css_edit", "Show the spawns for the specified bombsite.", _showSpawnsCommand.OnCommand);
+        AddCommand("css_add", "Creates a new retakes spawn for the bombsite currently shown.", _addSpawnCommand.OnCommand);
+        AddCommand("css_addspawn", "Creates a new retakes spawn for the bombsite currently shown.", _addSpawnCommand.OnCommand);
+        AddCommand("css_new", "Creates a new retakes spawn for the bombsite currently shown.", _addSpawnCommand.OnCommand);
+        AddCommand("css_newspawn", "Creates a new retakes spawn for the bombsite currently shown.", _addSpawnCommand.OnCommand);
+        AddCommand("css_remove", "Deletes the nearest retakes spawn.", _removeSpawnCommand.OnCommand);
+        AddCommand("css_removespawn", "Deletes the nearest retakes spawn.", _removeSpawnCommand.OnCommand);
+        AddCommand("css_delete", "Deletes the nearest retakes spawn.", _removeSpawnCommand.OnCommand);
+        AddCommand("css_deletespawn", "Deletes the nearest retakes spawn.", _removeSpawnCommand.OnCommand);
+        AddCommand("css_nearestspawn", "Goes to nearest retakes spawn.", _nearestSpawnCommand.OnCommand);
+        AddCommand("css_nearest", "Goes to nearest retakes spawn.", _nearestSpawnCommand.OnCommand);
+        AddCommand("css_hidespawns", "Exits the spawn editing mode.", _hideSpawnsCommand.OnCommand);
+        AddCommand("css_done", "Exits the spawn editing mode.", _hideSpawnsCommand.OnCommand);
+        AddCommand("css_exitedit", "Exits the spawn editing mode.", _hideSpawnsCommand.OnCommand);
+
+        // Player Commands
+        AddCommand("css_voices", "Toggles whether or not you want to hear bombsite voice announcements.", _voicesCommand.OnCommand);
+
+        Utils.Logger.LogInfo("Commands", "All commands registered successfully");
     }
+    #endregion
 
-    [GameEventHandler]
-    public HookResult OnPlayerDeath(EventPlayerDeath @event, GameEventInfo info)
+    #region Event Handlers
+    private HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
     {
-        if (_gameManager == null)
-        {
-            Helpers.Debug($"Game manager not loaded.");
-            return HookResult.Continue;
-        }
-
-        var attacker = @event.Attacker;
-        var assister = @event.Assister;
-
-        if (Helpers.IsValidPlayer(attacker))
-        {
-            _gameManager.AddScore(attacker, GameManager.ScoreForKill);
-        }
-
-        if (Helpers.IsValidPlayer(assister))
-        {
-            _gameManager.AddScore(assister, GameManager.ScoreForAssist);
-        }
-
-        return HookResult.Continue;
+        return _playerEventHandlers?.OnPlayerConnectFull(@event, info) ?? HookResult.Continue;
     }
 
-    [GameEventHandler]
-    public HookResult OnBombDefused(EventBombDefused @event, GameEventInfo info)
+    private HookResult OnRoundPreStart(EventRoundPrestart @event, GameEventInfo info)
     {
-        if (_gameManager == null)
-        {
-            Helpers.Debug($"Game manager not loaded.");
-            return HookResult.Continue;
-        }
-
-        var player = @event.Userid;
-
-        if (Helpers.IsValidPlayer(player))
-        {
-            _gameManager.AddScore(player, GameManager.ScoreForDefuse);
-        }
-
-        return HookResult.Continue;
+        return _roundEventHandlers?.OnRoundPreStart(@event, info) ?? HookResult.Continue;
     }
 
-    [GameEventHandler]
-    public HookResult OnRoundEnd(EventRoundEnd @event, GameEventInfo info)
+    private HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
-        _lastRoundWinner = (CsTeam)@event.Winner;
-
-        return HookResult.Continue;
+        return _roundEventHandlers?.OnRoundStart(@event, info) ?? HookResult.Continue;
     }
 
-    [GameEventHandler(HookMode.Pre)]
-    public HookResult OnPlayerTeam(EventPlayerTeam @event, GameEventInfo info)
+    private HookResult OnRoundPostStart(EventRoundPoststart @event, GameEventInfo info)
     {
-        // Ensure all team join events are silent.
-        @event.Silent = true;
-
-        if (_gameManager == null)
-        {
-            Helpers.Debug($"Game manager not loaded.");
-            return HookResult.Continue;
-        }
-
-        return _gameManager.RemoveSpectators(@event, _hasMutedVoices);
+        return _roundEventHandlers?.OnRoundPostStart(@event, info) ?? HookResult.Continue;
     }
 
+    private HookResult OnRoundFreezeEnd(EventRoundFreezeEnd @event, GameEventInfo info)
+    {
+        return _roundEventHandlers?.OnRoundFreezeEnd(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnRoundEnd(EventRoundEnd @event, GameEventInfo info)
+    {
+        return _roundEventHandlers?.OnRoundEnd(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
+    {
+        return _playerEventHandlers?.OnPlayerSpawn(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnPlayerDeath(EventPlayerDeath @event, GameEventInfo info)
+    {
+        return _playerEventHandlers?.OnPlayerDeath(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnBombPlanted(EventBombPlanted @event, GameEventInfo info)
+    {
+        return _roundEventHandlers?.OnBombPlanted(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnBombDefused(EventBombDefused @event, GameEventInfo info)
+    {
+        return _roundEventHandlers?.OnBombDefused(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
+    {
+        return _playerEventHandlers?.OnPlayerDisconnect(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnPlayerTeam(EventPlayerTeam @event, GameEventInfo info)
+    {
+        return _playerEventHandlers?.OnPlayerTeam(@event, info) ?? HookResult.Continue;
+    }
+    #endregion
+
+    #region Command Handlers
     private HookResult OnCommandJoinTeam(CCSPlayerController? player, CommandInfo commandInfo)
     {
         if (_gameManager == null)
         {
-            Helpers.Debug($"Game manager not loaded.");
+            Utils.Logger.LogWarning("Commands", "Game manager not loaded");
             return HookResult.Continue;
         }
 
-        if (
-            !Helpers.IsValidPlayer(player)
-            || commandInfo.ArgCount < 2
-            || !Enum.TryParse<CsTeam>(commandInfo.GetArg(1), out var toTeam)
-        )
+        if (!PlayerHelper.IsValid(player) || commandInfo.ArgCount < 2 ||
+            !Enum.TryParse<CounterStrikeSharp.API.Modules.Utils.CsTeam>(commandInfo.GetArg(1), out var toTeam))
         {
             return HookResult.Handled;
         }
 
-        var fromTeam = player.Team;
-
-        Helpers.Debug($"[{player.PlayerName}] {fromTeam} -> {toTeam}");
+        var fromTeam = player!.Team;
+        Utils.Logger.LogDebug("Commands", $"[{player.PlayerName}] {fromTeam} -> {toTeam}");
 
         _gameManager.QueueManager.DebugQueues(true);
         var response = _gameManager.QueueManager.PlayerJoinedTeam(player, fromTeam, toTeam);
         _gameManager.QueueManager.DebugQueues(false);
 
-        Helpers.Debug($"[{player.PlayerName}] checking to ensure we have active players");
-        // If we don't have any active players, setup the active players and restart the game.
-        if (_gameManager.QueueManager.ActivePlayers.Count != 0) return response;
-        
-        Helpers.Debug($"[{player.PlayerName}] clearing round teams to allow team changes");
-        _gameManager.QueueManager.ClearRoundTeams();
-
-        Helpers.Debug(
-            $"[{player.PlayerName}] no active players found, calling QueueManager.Update()");
-        _gameManager.QueueManager.DebugQueues(true);
-        _gameManager.QueueManager.Update();
-        _gameManager.QueueManager.DebugQueues(false);
-
-        Helpers.RestartGame();
+        if (_gameManager.QueueManager.ActivePlayers.Count == 0)
+        {
+            Utils.Logger.LogDebug("Commands", "No active players, updating queue and restarting game");
+            _gameManager.QueueManager.ClearRoundTeams();
+            _gameManager.QueueManager.Update();
+            GameRulesHelper.RestartGame();
+        }
 
         return response;
     }
-
-    [GameEventHandler(HookMode.Pre)]
-    public HookResult OnPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
-    {
-        var player = @event.Userid;
-
-        if (player == null)
-        {
-            return HookResult.Continue;
-        }
-
-        if (_gameManager == null)
-        {
-            Helpers.Debug($"Game manager not loaded.");
-            return HookResult.Continue;
-        }
-
-        _gameManager.QueueManager.RemovePlayerFromQueues(player);
-        _hasMutedVoices.Remove(player);
-
-        if (player.IsBot || !player.IsValid) return HookResult.Continue;
-
-        var db = Modules.Database.MongoDB.Instance;
-        db.SetPlayerOnlineStatus(player.SteamID, false, player.IpAddress);
-
-        HandleBots();
-        return HookResult.Continue;
-    }
     #endregion
 
-    // Helpers (with localization so they must be in here until I can figure out how to use it nicely elsewhere)
-    private void AnnounceBombsite(Bombsite bombsite, bool onlyCenter = false)
+    public override void Unload(bool hotReload)
     {
-        string[] bombsiteAnnouncers =
-        [
-            "balkan_epic",
-            "leet_epic",
-            "professional_epic",
-            "professional_fem",
-            "seal_epic",
-            "swat_epic",
-            "swat_fem"
-        ];
-
-        // Get translation message
-        var numTerrorist = Helpers.GetCurrentNumPlayers(CsTeam.Terrorist);
-        var numCounterTerrorist = Helpers.GetCurrentNumPlayers(CsTeam.CounterTerrorist);
-
-        var isRetakesConfigLoaded = RetakesConfig.IsLoaded(_retakesConfig);
-
-        // TODO: Once we implement per client translations this will need to be inside the loop
-        var announcementMessage = _translator["retakes.bombsite.announcement", bombsite.ToString(), numTerrorist,
-            numCounterTerrorist];
-        var centerAnnouncementMessage = _translator["center.retakes.bombsite.announcement", bombsite.ToString(), numTerrorist,
-            numCounterTerrorist];
-
-        foreach (var player in Utilities.GetPlayers())
-        {
-            if (!onlyCenter)
-            {
-                // Don't use Server.PrintToChat as it'll add another loop through the players.
-                player.PrintToChat($"{MessagePrefix}{announcementMessage}");
-
-                if (
-                    (!isRetakesConfigLoaded || _retakesConfig!.RetakesConfigData!.EnableBombsiteAnnouncementVoices)
-                    && !_hasMutedVoices.Contains(player)
-                )
-                {
-                    // Do this here so every player hears a random announcer each round.
-                    var bombsiteAnnouncer = bombsiteAnnouncers[Helpers.Random.Next(bombsiteAnnouncers.Length)];
-
-                    player.ExecuteClientCommand(
-                        $"play sounds/vo/agents/{bombsiteAnnouncer}/loc_{bombsite.ToString().ToLower()}_01");
-                }
-
-                continue;
-            }
-
-            if (isRetakesConfigLoaded && !_retakesConfig!.RetakesConfigData!.EnableBombsiteAnnouncementCenter)
-            {
-                continue;
-            }
-
-            if (player.Team == CsTeam.CounterTerrorist)
-            {
-                player.PrintToCenter(centerAnnouncementMessage);
-            }
-        }
-    }
-
-    private void HandleAutoPlant()
-    {
-        if (RetakesConfig.IsLoaded(_retakesConfig) && !_retakesConfig!.RetakesConfigData!.IsAutoPlantEnabled)
-        {
-            return;
-        }
-
-        if (_planter != null && Helpers.IsValidPlayer(_planter))
-        {
-            Helpers.PlantTickingBomb(_planter, _currentBombsite);
-        }
-        else
-        {
-            Helpers.TerminateRound(RoundEndReason.RoundDraw);
-        }
+        Utils.Logger.LogInfo("Main", "Plugin unloading...");
+        base.Unload(hotReload);
     }
 }

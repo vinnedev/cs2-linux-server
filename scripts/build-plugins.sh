@@ -9,9 +9,70 @@ PLUGINS=(
     "cs2-autojoin:AutojoinPlugin.csproj:AutojoinPlugin"
     "cs2-instadefuse:InstadefusePlugin.csproj:InstadefusePlugin"
     "cs2-instaplant:InstaplantPlugin.csproj:InstaplantPlugin"
+    "cs2-clutch-announce:ClutchAnnouncePlugin.csproj:ClutchAnnouncePlugin"
     "cs2-retakes:RetakesPlugin/RetakesPlugin.csproj:RetakesPlugin"
     "cs2-inventory-simulator-plugin:InventorySimulator.csproj:InventorySimulator"
 )
+
+get_dest_path() {
+    local name="$1"
+
+    case "$name" in
+        RetakesPlugin|InstadefusePlugin|ClutchAnnouncePlugin)
+            echo "$PLUGINS_DEST/disabled/$name"
+            ;;
+        *)
+            echo "$PLUGINS_DEST/$name"
+            ;;
+    esac
+}
+
+clean_dest_path() {
+    local name="$1"
+    local dest_path="$2"
+    local preserved_file=""
+
+    if [ -d "$dest_path" ]; then
+        if [ "$name" = "RetakesPlugin" ] && [ -f "$dest_path/retakes_config.json" ]; then
+            preserved_file="$(mktemp)"
+            cp "$dest_path/retakes_config.json" "$preserved_file"
+        fi
+
+        rm -rf "$dest_path"
+    fi
+
+    mkdir -p "$dest_path"
+
+    if [ -n "$preserved_file" ]; then
+        mv "$preserved_file" "$dest_path/retakes_config.json"
+    fi
+}
+
+copy_plugin_assets() {
+    local dir="$1"
+    local src_path="$2"
+    local dest_path="$3"
+
+    case "$dir" in
+        cs2-retakes)
+            if [ -d "$src_path/RetakesPlugin/lang" ]; then
+                mkdir -p "$dest_path/lang"
+                cp -R "$src_path/RetakesPlugin/lang/." "$dest_path/lang/"
+            fi
+
+            if [ -d "$src_path/RetakesPlugin/map_config" ]; then
+                mkdir -p "$dest_path/map_config"
+                cp -R "$src_path/RetakesPlugin/map_config/." "$dest_path/map_config/"
+            fi
+            ;;
+        *)
+            if [ -d "$src_path/lang" ]; then
+                mkdir -p "$dest_path/lang"
+                cp -R "$src_path/lang/." "$dest_path/lang/"
+            fi
+            ;;
+    esac
+}
 
 build_plugin() {
     local dir="$1"
@@ -19,7 +80,8 @@ build_plugin() {
     local name="$3"
     local src_path="$PLUGINS_SRC/$dir"
     local project_path="$src_path/$csproj"
-    local dest_path="$PLUGINS_DEST/$name"
+    local dest_path
+    dest_path="$(get_dest_path "$name")"
 
     if [ ! -f "$project_path" ]; then
         echo "SKIP: $project_path not found"
@@ -30,13 +92,9 @@ build_plugin() {
     dotnet build "$project_path" -c Release -o "$src_path/build/$name" --no-restore 2>/dev/null || \
     dotnet build "$project_path" -c Release -o "$src_path/build/$name"
 
-    mkdir -p "$dest_path"
+    clean_dest_path "$name" "$dest_path"
     cp -R "$src_path/build/$name/." "$dest_path/"
-
-    if [ -d "$src_path/lang" ]; then
-        mkdir -p "$dest_path/lang"
-        cp -R "$src_path/lang/." "$dest_path/lang/"
-    fi
+    copy_plugin_assets "$dir" "$src_path" "$dest_path"
 
     echo "Deployed $name -> $dest_path"
 }
@@ -69,7 +127,7 @@ elif [ "$TARGET" = "watch" ]; then
     for entry in "${PLUGINS[@]}"; do
         IFS=':' read -r dir csproj name <<< "$entry"
         if [ "$dir" = "$PLUGIN" ]; then
-            dest_path="$PLUGINS_DEST/$name"
+            dest_path="$(get_dest_path "$name")"
             mkdir -p "$dest_path"
             echo "Watching $dir -> $dest_path"
             dotnet watch build --project "$PLUGINS_SRC/$dir/$csproj" --property:OutDir="$dest_path"

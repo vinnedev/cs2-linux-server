@@ -54,13 +54,7 @@ else
 fi
 
 echo "===== Preparando arquivos do servidor ====="
-rm -rf "$ROOT_DIR/server/game/csgo/addons"
-rm -rf "$ROOT_DIR/server/game/csgo/cfg/settings"
-cp -r "$ROOT_DIR/components/csgo/." "$ROOT_DIR/server/game/csgo/"
-
-if [ -d "$ROOT_DIR/components/csgo/addons/linux" ]; then
-    cp -r "$ROOT_DIR/components/csgo/addons/linux/." "$ROOT_DIR/server/game/csgo/"
-fi
+"$ROOT_DIR/scripts/apply-components-overlay.sh" "$ROOT_DIR/server/game/csgo"
 
 echo "🟢 Iniciando servidor CS2..."
 "$CS2_PATH" -dedicated -console -usercon \

@@ -52,14 +52,7 @@ else
 fi
 
 echo "===== [5/5] Preparando arquivos do servidor ====="
-rm -rf "$ROOT_DIR/server/game/csgo/addons"
-rm -rf "$ROOT_DIR/server/game/csgo/cfg/settings"
-cp -r "$ROOT_DIR/components/csgo/." "$ROOT_DIR/server/game/csgo/"
-
-if [ -d "$ROOT_DIR/components/csgo/addons/linux" ]; then
-    cp -r "$ROOT_DIR/components/csgo/addons/linux/." "$ROOT_DIR/server/game/csgo/"
-fi
+"$ROOT_DIR/scripts/apply-components-overlay.sh" "$ROOT_DIR/server/game/csgo"
 
 
 echo "✅ Setup concluído. Para iniciar o servidor, execute ./start.sh"
-
