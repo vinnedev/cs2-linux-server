@@ -40,7 +40,7 @@ flowchart LR
 ## Deploy via Docker
 
 ```bash
-cp .env.sample .env
+cp .env.example .env
 # edite STEAM_ACCOUNT, API_KEY, RCON_PASSWORD, EXEC
 docker compose up -d --build
 docker compose logs -f cs2
@@ -53,11 +53,11 @@ Volume `./server` persiste a instalação do CS2 entre restarts — evita baixar
 ## Deploy em host Linux
 
 ```bash
-sudo ./runtime_net_install.sh    # se necessário
-./install.sh                     # instala CS2 + patch gameinfo
-./start.sh                       # foreground
+sudo python3 runtime_net_install.py   # se necessário
+python3 install.py                    # instala CS2 + patch gameinfo
+python3 start.py                      # foreground
 # ou em screen / systemd
-screen -dmS cs2 ./start.sh
+screen -dmS cs2 python3 start.py
 ```
 
 ### Template systemd (exemplo)
@@ -71,7 +71,7 @@ After=network-online.target
 Type=simple
 User=steam
 WorkingDirectory=/opt/cs2-linux-server
-ExecStart=/opt/cs2-linux-server/start.sh
+ExecStart=/usr/bin/python3 /opt/cs2-linux-server/start.py
 Restart=on-failure
 RestartSec=10
 
@@ -130,10 +130,10 @@ Via chat no jogo (se `CS2Rcon` plugin estiver ativo):
 
 | Sintoma                                      | Causa provável                                    | Ação                                                |
 |----------------------------------------------|---------------------------------------------------|-----------------------------------------------------|
-| "Could not load Metamod"                     | `gameinfo.gi` sem patch                           | Rodar `scripts/patch-gameinfo.sh`                   |
-| CSS plugins não carregam                     | .NET runtime ausente                              | `runtime_net_install.sh` ou usar Docker             |
+| "Could not load Metamod"                     | `gameinfo.gi` sem patch                           | Rodar `python3 scripts/patch_gameinfo.py`           |
+| CSS plugins não carregam                     | .NET runtime ausente                              | `python3 runtime_net_install.py` ou usar Docker     |
 | Servidor não aparece no browser              | `STEAM_ACCOUNT` vazio ou inválido                 | Gerar GSLT válido para AppID 730                    |
-| Workshop maps faltando                       | `API_KEY` ausente ou `subscribed_file_ids.txt` dessincronizado | Preencher API_KEY, rodar `get-map-names.sh` |
+| Workshop maps faltando                       | `API_KEY` ausente ou `subscribed_file_ids.txt` dessincronizado | Preencher API_KEY, rodar `python3 scripts/get_map_names.py` |
 | RCON rejeitado                               | porta 27015/TCP bloqueada ou senha errada         | Verificar UFW + `RCON_PASSWORD`                     |
 | `steamclient.so: cannot open`                | volume do docker-compose apontando para caminho inexistente no host | Criar symlink ou ajustar o volume     |
 | Servidor em hibernação                       | `sv_hibernate_when_empty` foi reativado           | `server.cfg` força `0`; reexecutar exec do modo     |
@@ -151,11 +151,11 @@ sequenceDiagram
     Scmd->>Game: sobrescreve gameinfo.gi, binários, etc.
     Admin->>Overlay: rm -rf addons, cfg/settings
     Admin->>Overlay: cp -r components/csgo/.
-    Admin->>Game: patch-gameinfo.sh (re-aplica Metamod)
-    Admin->>Game: ./start.sh
+    Admin->>Game: python3 scripts/patch_gameinfo.py (re-aplica Metamod)
+    Admin->>Game: python3 start.py
 ```
 
-Após cada update oficial da Valve, `gameinfo.gi` pode ter sido **regravado** — rode `scripts/patch-gameinfo.sh` antes de levantar o servidor.
+Após cada update oficial da Valve, `gameinfo.gi` pode ter sido **regravado** — rode `python3 scripts/patch_gameinfo.py` antes de levantar o servidor.
 
 ## Segurança operacional
 

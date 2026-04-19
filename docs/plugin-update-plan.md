@@ -20,10 +20,10 @@ O estado atual nao permite uma atualizacao segura apenas trocando arquivos upstr
 Motivos principais:
 
 1. `cs2-retakes` local nao e um espelho do upstream; ele e uma arvore bastante divergente e com sinais claros de customizacao local.
-2. `cs2-clutch-announce` nao existe hoje em `plugins_source/` nem entra no `scripts/build-plugins.sh`.
+2. `cs2-clutch-announce` nao existe hoje em `plugins_source/` nem entra no `scripts/build_plugins.py`.
 3. O modo retake carrega DLLs em `plugins/disabled/`, mas o build local publica em `components/csgo/addons/counterstrikesharp/plugins/`.
-4. O `build-plugins.sh` nao publica todos os assets do `RetakesPlugin` (`lang/`, `map_config/`, `retakes_config.json`).
-5. O `start.sh` e o `install.sh` sempre sobrescrevem `server/game/csgo/` com `components/csgo/`, entao qualquer ajuste manual feito direto no servidor precisa virar arquivo versionado em `components/`.
+4. O `build_plugins.py` nao publica todos os assets do `RetakesPlugin` (`lang/`, `map_config/`, `retakes_config.json`).
+5. O `start.py` e o `install.py` sempre sobrescrevem `server/game/csgo/` com `components/csgo/`, entao qualquer ajuste manual feito direto no servidor precisa virar arquivo versionado em `components/`.
 
 ## Fontes Upstream Confirmadas
 
@@ -120,7 +120,7 @@ Conclusao:
 
 Hoje:
 
-- `scripts/build-plugins.sh` publica em `components/csgo/addons/counterstrikesharp/plugins/`
+- `scripts/build_plugins.py` publica em `components/csgo/addons/counterstrikesharp/plugins/`
 
 Mas o modo retake carrega:
 
@@ -134,7 +134,7 @@ Impacto:
 
 ### 2. `cs2-clutch-announce` fora do build
 
-Hoje `scripts/build-plugins.sh` conhece apenas:
+Hoje `scripts/build_plugins.py` conhece apenas:
 
 - `cs2-autojoin`
 - `cs2-instadefuse`
@@ -161,7 +161,7 @@ Impacto:
 
 ### 4. `components/` e a fonte da verdade
 
-`start.sh` e `install.sh` fazem overlay de `components/csgo/` em `server/game/csgo/`.
+`start.py` e `install.py` fazem overlay de `components/csgo/` em `server/game/csgo/`.
 
 Impacto:
 
@@ -267,7 +267,7 @@ O build/deploy precisa refletir como o servidor realmente carrega plugins.
 
 Mudancas necessarias:
 
-1. `scripts/build-plugins.sh`
+1. `scripts/build_plugins.py`
    - adicionar `cs2-clutch-announce`
    - publicar `RetakesPlugin` e `InstadefusePlugin` no destino usado pelo modo retake:
      - `components/csgo/addons/counterstrikesharp/plugins/disabled/RetakesPlugin`
@@ -331,13 +331,13 @@ cd /opt/cs2-linux-server
 git pull
 
 # se o build for feito no proprio host
-./scripts/build-plugins.sh cs2-instadefuse
-./scripts/build-plugins.sh cs2-instaplant
-./scripts/build-plugins.sh cs2-clutch-announce
-./scripts/build-plugins.sh cs2-retakes
+./scripts/build_plugins.py cs2-instadefuse
+./scripts/build_plugins.py cs2-instaplant
+./scripts/build_plugins.py cs2-clutch-announce
+./scripts/build_plugins.py cs2-retakes
 
 # reiniciar
-./start.sh
+python3 start.py
 ```
 
 Se o build for feito em outra maquina, copie a pasta versionada:
@@ -350,12 +350,12 @@ Depois no servidor:
 
 ```bash
 cd /opt/cs2-linux-server
-./start.sh
+python3 start.py
 ```
 
 ## Ordem de Execucao Recomendada
 
-1. corrigir `build-plugins.sh`
+1. corrigir `build_plugins.py`
 2. adicionar `cs2-clutch-announce`
 3. atualizar `cs2-instadefuse`
 4. validar `cs2-instaplant`

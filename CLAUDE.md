@@ -22,21 +22,27 @@ cs2-linux-server/
 │   └── cs2-retakes/
 ├── server/                    # Runtime server directory (mounted as Docker volume)
 ├── scripts/
-│   ├── build-plugins.sh       # Build and deploy plugins to components/
-│   ├── check-updates.sh       # Check for mod/plugin updates
-│   └── ...
+│   ├── _common.py             # Shared logger, utilities (no deps beyond stdlib)
+│   ├── build_plugins.py       # Build and deploy plugins to components/
+│   ├── check_updates.py       # Check for mod/plugin updates
+│   ├── apply_components_overlay.py
+│   ├── patch_gameinfo.py
+│   ├── get_map_names.py
+│   ├── parse_gamemodes.py
+│   └── add-map.py             # Add workshop map to gamemodes_server.txt
 ├── docker-compose.yml
 ├── Dockerfile
-├── .env.example               # Template for environment variables
-├── install.sh                 # Full server setup (SteamCMD + CS2 + patches)
-├── start.sh                   # Start server (copies components/ -> server/)
-└── setup.sh                   # Alternative setup from upstream
+├── .env.example               # Template for environment variables (single source of truth)
+├── install.py                 # Full server setup (SteamCMD + CS2 + patches)
+├── start.py                   # Start server (copies components/ -> server/)
+├── setup.py                   # Alternative setup from upstream
+└── runtime_net_install.py     # Install .NET 8.0 runtime
 ```
 
 ## Deployment Flow
 
 1. `components/csgo/` holds all addons and configs as the source of truth
-2. `start.sh` copies `components/csgo/` into `server/game/csgo/` at each boot
+2. `start.py` copies `components/csgo/` into `server/game/csgo/` at each boot
 3. `server/` is mounted as a Docker volume at `/app/server`
 4. Plugin sources in `plugins_source/` build into `components/csgo/addons/counterstrikesharp/plugins/`
 
@@ -54,13 +60,13 @@ cs2-linux-server/
 
 ```bash
 # Build all plugins and deploy to components/
-./scripts/build-plugins.sh
+python3 scripts/build_plugins.py
 
 # Build a specific plugin
-./scripts/build-plugins.sh cs2-retakes
+python3 scripts/build_plugins.py cs2-retakes
 
 # Watch mode (auto-rebuild on changes)
-./scripts/build-plugins.sh watch cs2-autojoin
+python3 scripts/build_plugins.py watch cs2-autojoin
 ```
 
 ### Adding a New Plugin
@@ -77,7 +83,7 @@ cs2-linux-server/
      <PackageReference Include="CounterStrikeSharp.API" Version="1.0.365" />
    </ItemGroup>
    ```
-3. Add entry to `PLUGINS` array in `scripts/build-plugins.sh`
+3. Add entry to `PLUGINS` list in `scripts/build_plugins.py`
 
 ### Custom Plugins
 
@@ -91,13 +97,13 @@ cs2-linux-server/
 
 ## Critical Rules
 
-- NEVER modify files inside `server/` directly — they are overwritten on each `start.sh` run
+- NEVER modify files inside `server/` directly — they are overwritten on each `start.py` run
 - All persistent changes go in `components/csgo/`
 - NEVER commit `.env` files, Steam credentials, or database connection strings
 - NEVER hardcode secrets in source code — use environment variables
 - NEVER delete `components/csgo/addons/` without backup — it contains all installed mods
 - When updating mods, place files in `components/csgo/` not in `tmp/`
-- `gameinfo.gi` patch (Metamod line) is applied by `install.sh` — do not remove it
+- `gameinfo.gi` patch (Metamod line) is applied by `install.py` — do not remove it
 - Use `AddTimer()` for delayed operations — NEVER use `Task.Delay` (runs outside game thread, causes crashes)
 - MongoDB access must use `MongoDB.Instance` singleton — NEVER instantiate `new MongoDB()`
 
@@ -123,7 +129,7 @@ Required variables (see `.env.example`):
 
 ```bash
 # Check for updates and auto-deploy to components/
-./scripts/check-updates.sh
+python3 scripts/check_updates.py
 ```
 
 Updates are automatically downloaded, extracted, and deployed to `components/csgo/` (addons + cfg).

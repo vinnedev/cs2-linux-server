@@ -8,7 +8,7 @@ flowchart TB
         direction TB
         subgraph Container["Container cs2-server (Debian bullseye)"]
             ENV[".env<br/>PORT, TICKRATE, EXEC,<br/>STEAM_ACCOUNT, API_KEY"]
-            Start["start.sh<br/>(entrypoint)"]
+            Start["start.py<br/>(entrypoint)"]
             Overlay["components/csgo/<br/>(overlay de mods e configs)"]
 
             subgraph Game["CS2 Dedicated Server"]
@@ -57,7 +57,7 @@ flowchart TB
     ModeCfg --> OnBoot
     ModeCfg --> Settings
 
-    Steam -->|install.sh<br/>app_update 730| CS2
+    Steam -->|install.py<br/>app_update 730| CS2
     Workshop -->|subscribed_file_ids.txt| CS2
     Players <-->|UDP 27015| CS2
     Players <-->|GOTV 27020| CS2
@@ -76,8 +76,8 @@ graph LR
 
 | Camada         | Responsabilidade                                    | Arquivos-chave                                |
 |----------------|-----------------------------------------------------|-----------------------------------------------|
-| Infraestrutura | Container, portas, firewall                         | `Dockerfile`, `docker-compose.yml`, `start.sh`|
-| Runtime        | Binário CS2 + SteamCMD + libs                       | `install.sh`, `server/game/bin/.../cs2`       |
+| Infraestrutura | Container, portas, firewall                         | `Dockerfile`, `docker-compose.yml`, `start.py`|
+| Runtime        | Binário CS2 + SteamCMD + libs                       | `install.py`, `server/game/bin/.../cs2`       |
 | Mod            | Hook Metamod em `gameinfo.gi`; bootstrap do CSS     | `addons/metamod`, `addons/counterstrikesharp` |
 | Plugin         | Lógica de gamemode (Retakes, Executes, MatchZy...)  | `addons/counterstrikesharp/plugins/`          |
 | Config         | Parâmetros do servidor por modo                     | `cfg/<mode>.cfg`, `cfg/settings/*.cfg`        |
@@ -89,17 +89,17 @@ O diretório `components/csgo/` **não é** o servidor — é um pacote de artef
 
 1. Versionar no git **apenas** o que é custom (addons, configs, map groups).
 2. Re-sincronizar sempre que o SteamCMD atualiza o jogo e sobrescreve arquivos.
-3. Manter `addons/` e `cfg/settings/` limpos antes da cópia (o `start.sh` faz `rm -rf` desses diretórios antes de recopiar).
+3. Manter `addons/` e `cfg/settings/` limpos antes da cópia (o `start.py` faz `rm -rf` desses diretórios antes de recopiar).
 
 ```mermaid
 sequenceDiagram
     participant SCmd as SteamCMD
     participant Game as server/game/csgo
     participant Overlay as components/csgo
-    participant Start as start.sh
+    participant Start as start.py
 
     SCmd->>Game: app_update 730 (arquivos originais)
     Start->>Game: rm -rf addons, cfg/settings
-    Overlay->>Game: cp -r components/csgo/. (overlay)
+    Overlay->>Game: copytree_merge(components/csgo -> server/game/csgo)
     Start->>Game: exec CS2 binary
 ```

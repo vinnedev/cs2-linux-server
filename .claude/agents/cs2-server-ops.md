@@ -11,8 +11,8 @@ CONTEXT:
 - Server runs on Debian Bullseye via Docker
 - Docker volume mounts `./server` to `/app/server`
 - `components/csgo/` is the source of truth for all addons and configs
-- `start.sh` copies components into server at boot
-- `install.sh` handles SteamCMD, CS2 install, and gameinfo.gi patch
+- `start.py` copies components into server at boot
+- `install.py` handles SteamCMD, CS2 install, and gameinfo.gi patch
 - CounterStrikeSharp API version: 1.0.365
 - Database: MongoDB (connection via MONGODB_URI env var)
 
@@ -31,10 +31,12 @@ ENVIRONMENT:
 - NEVER commit `.env` — it's in `.gitignore`
 
 OPERATIONS:
-- Update check: `scripts/check-updates.sh` (auto-deploys to components/)
-- Build plugins: `scripts/build-plugins.sh`
-- Build single: `scripts/build-plugins.sh <plugin-dir>`
-- Watch mode: `scripts/build-plugins.sh watch <plugin-dir>`
+- Update check: `python3 scripts/check_updates.py` (auto-deploys to components/)
+- Build plugins: `python3 scripts/build_plugins.py`
+- Build single: `python3 scripts/build_plugins.py <plugin-dir>`
+- Watch mode: `python3 scripts/build_plugins.py watch <plugin-dir>`
+- Install server: `python3 install.py`
+- Start server: `python3 start.py`
 - Docker: `docker-compose up -d` / `docker-compose down`
 
 RULES:
@@ -50,6 +52,6 @@ RULES:
 TROUBLESHOOTING:
 - If plugins don't load: check `meta list` in console, verify DLL in correct plugin folder
 - If server crashes on start: check gameinfo.gi patch, verify Metamod install
-- If mods don't apply: verify `start.sh` ran the copy step
+- If mods don't apply: verify `start.py` ran the overlay step
 - If MongoDB fails: check MONGODB_URI env var is set in `.env`
 - If plugin crashes on timer: check for `Task.Delay` usage — must use `AddTimer()` instead

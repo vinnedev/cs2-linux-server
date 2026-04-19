@@ -58,7 +58,7 @@ EXEC=retake.cfg          # gamemode inicial
 
 ```mermaid
 flowchart LR
-    EnvFile[".env"] -->|export| Shell[start.sh env]
+    EnvFile[".env"] -->|export| Shell[start.py env]
     Shell -->|-port| CS2[cs2 binary]
     Shell -->|-authkey| CS2
     Shell -->|+exec| CS2
@@ -92,7 +92,7 @@ Arquivos começando com `custom_` são pontos de extensão:
 - `custom_all.cfg` — sempre executado após `server.cfg`.
 - `custom_<mode>.cfg` — executado dentro do `.cfg` do modo.
 
-A pasta `custom_files_example/` mostra o layout esperado. Em produção, coloque seu conteúdo em `custom_files/` e deixe o `setup.sh` fazer o merge.
+A pasta `custom_files_example/` mostra o layout esperado. Em produção, coloque seu conteúdo em `custom_files/` e deixe o `setup.py` fazer o merge.
 
 ## `gamemodes_server.txt`
 

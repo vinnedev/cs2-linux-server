@@ -1,11 +1,11 @@
 # 04 — Fluxo de Runtime
 
-## `start.sh` — Sequência de Boot
+## `start.py` — Sequência de Boot
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Shell as start.sh
+    participant Script as start.py
     participant Env as .env
     participant UFW as UFW firewall
     participant FS as Filesystem
@@ -14,14 +14,13 @@ sequenceDiagram
     participant CSS as CounterStrikeSharp
     participant Cfg as retake.cfg / EXEC
 
-    Shell->>Env: carrega variáveis (grep -v '^#' | xargs)
-    Shell->>Shell: defaults (PORT=27015, TICKRATE=64, EXEC=autoexec.cfg)
-    Shell->>UFW: ufw allow 27015/tcp+udp, 27020/tcp+udp
-    Shell->>FS: rm -rf server/game/csgo/addons
-    Shell->>FS: rm -rf server/game/csgo/cfg/settings
-    Shell->>FS: cp -r components/csgo/. server/game/csgo/
-    Shell->>FS: cp -r components/csgo/addons/linux/. server/game/csgo/
-    Shell->>CS2: exec cs2 -dedicated -console -usercon +args
+    Script->>Env: load_env_file + export_env
+    Script->>Script: defaults (PORT=27015, TICKRATE=128, EXEC=retake.cfg)
+    Script->>UFW: ufw allow 27015/tcp+udp, 27020/tcp+udp
+    Script->>FS: rm -rf server/game/csgo/addons
+    Script->>FS: rm -rf server/game/csgo/cfg/settings
+    Script->>FS: copytree_merge(components/csgo -> server/game/csgo)
+    Script->>CS2: subprocess.Popen cs2 -dedicated -console -usercon +args
     CS2->>MM: lê gameinfo.gi, carrega Metamod
     MM->>CSS: carrega CounterStrikeSharp via vdf
     CS2->>Cfg: +exec $EXEC (ex: retake.cfg)

@@ -10,7 +10,7 @@ flowchart LR
     VDFs --> CSS["CounterStrikeSharp<br/>(counterstrikesharp.vdf)"]
     VDFs --> MAM["MultiAddonManager<br/>(multiaddonmanager.vdf)"]
     VDFs --> SLP["ServerListPlayersFix<br/>(serverlistplayersfix_mm.vdf)"]
-    CSS --> DotNet[".NET 8 Runtime<br/>(runtime_net_install.sh)"]
+    CSS --> DotNet[".NET 8 Runtime<br/>(runtime_net_install.py)"]
     CSS --> Plugins["plugins/*.dll<br/>(carregados via css_plugins load)"]
 ```
 
@@ -92,7 +92,7 @@ Esse padrão (**"todos desativados, só o modo ativo carrega"**) permite trocar 
 O CSS exige **.NET 8**; para instalar no host:
 
 ```bash
-./runtime_net_install.sh   # adiciona repo MS + instala dotnet-runtime-8.0
+sudo python3 runtime_net_install.py   # adiciona repo MS + instala dotnet-runtime-8.0
 ```
 
 No Docker, o runtime vem embarcado no diretório `addons/counterstrikesharp/dotnet/`.

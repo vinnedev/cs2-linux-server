@@ -1,14 +1,14 @@
 # 03 — Fluxo de Instalação
 
-Há tres caminhos suportados: **instalação direta no host Linux** (`install.sh`), **instalação local no Windows** (`install.ps1`) e **container Docker** (`docker compose up --build`). Todos convergem no mesmo layout de arquivos.
+Há tres caminhos suportados: **instalação direta no host Linux** (`install.py`), **instalação local no Windows** (`install.ps1`) e **container Docker** (`docker compose up --build`). Todos convergem no mesmo layout de arquivos.
 
-## Instalação Local (`install.sh`)
+## Instalação Local (`install.py`)
 
 ```mermaid
 flowchart TD
-    Start([./install.sh]) --> Deps["[1/5] apt install<br/>lib32gcc-s1, lib32stdc++6,<br/>curl, wget, screen, tar"]
+    Start([python3 install.py]) --> Deps["[1/5] apt install<br/>lib32gcc-s1, lib32stdc++6,<br/>curl, wget, screen, tar"]
     Deps --> SCmd{"steamcmd.sh<br/>existe?"}
-    SCmd -- não --> DL["wget steamcmd_linux.tar.gz<br/>tar -xvzf"]
+    SCmd -- não --> DL["download steamcmd_linux.tar.gz<br/>extract"]
     SCmd -- sim --> Update
     DL --> Update["[3/5] steamcmd<br/>+login anonymous<br/>+app_update 730 validate"]
     Update --> Patch["[4/5] patch gameinfo.gi<br/>(insere Game csgo/addons/metamod)"]
@@ -20,7 +20,7 @@ flowchart TD
     Overlay --> Linux{"addons/linux/<br/>existe?"}
     Linux -- sim --> CopyLinux[copia linux-specific binaries]
     Linux -- não --> Done
-    CopyLinux --> Done([✅ Pronto para ./start.sh])
+    CopyLinux --> Done([✅ Pronto para python3 start.py])
 ```
 
 ### Etapas-chave
@@ -44,16 +44,16 @@ sequenceDiagram
     participant Host as Host filesystem
 
     User->>Compose: docker compose up --build
-    Compose->>Build: FROM debian:bullseye<br/>apt install libs<br/>COPY components, scripts, .env
+    Compose->>Build: FROM debian:bullseye<br/>apt install libs + python3<br/>COPY components, scripts, .env
     Build->>CT: imagem cs2-server
     Compose->>CT: cria container<br/>expõe 27015, 27020<br/>monta ./server e steamclient.so
-    CT->>CT: CMD ["/app/start.sh"]
+    CT->>CT: CMD ["python3", "/app/start.py"]
     CT->>Host: escreve em /app/server (volume)
 ```
 
 ### docker-compose.yml — pontos relevantes
 
-- **`env_file: .env`** — injeta as mesmas variáveis que `start.sh` consome.
+- **`env_file: .env`** — injeta as mesmas variáveis que `start.py` consome.
 - **`ports`** — 27015 (jogo/RCON) e 27020 (GOTV) em TCP e UDP.
 - **`volumes`**:
   - `./server:/app/server` — persiste o download do SteamCMD fora do container.
@@ -78,22 +78,21 @@ Quando uma pasta existente e reaproveitada, o patch do Metamod e os arquivos do 
 flowchart LR
     A[gameinfo.gi original] --> B{contém<br/>Game csgo/addons/metamod?}
     B -- sim --> D[skip]
-    B -- não --> C[awk insere linha<br/>após Game_LowViolence csgo_lv]
+    B -- não --> C[regex insere linha<br/>após Game_LowViolence csgo_lv]
     C --> E[gameinfo.gi patched]
     A -.backup.-> F[gameinfo.gi.bak]
 ```
 
 Sem essa linha, Metamod não é carregado e, por consequência, CounterStrikeSharp (que roda como plugin do Metamod) também não.
 
-## Setup remoto alternativo (`setup.sh`)
+## Setup remoto alternativo (`setup.py`)
 
-`setup.sh` é um instalador **pull-based** que baixa artefatos do repositório [`kus/cs2-modded-server`](https://github.com/kus/cs2-modded-server) — usado para aprovisionar rapidamente uma VM nova. Ele:
+`setup.py` é um instalador **pull-based** que baixa artefatos do repositório [`kus/cs2-modded-server`](https://github.com/kus/cs2-modded-server) — usado para aprovisionar rapidamente uma VM nova. Ele:
 
-1. Baixa `stop.sh` e `start.sh` via curl direto do GitHub.
-2. Resolve IP público com OpenDNS.
-3. Instala SteamCMD em `/steamcmd` com symlinks para `~/.steam/sdk32/` e `~/.steam/sdk64/`.
-4. `app_update 730` em `~/cs2_server`.
-5. Baixa o zip do mod, mescla `custom_files/` sobre `game/csgo/`.
-6. Aplica patch do Metamod e inicia o servidor.
+1. Resolve IP público com OpenDNS / ipify.
+2. Instala SteamCMD em `/steamcmd` com symlinks para `~/.steam/sdk32/` e `~/.steam/sdk64/`.
+3. `app_update 730` em `~/cs2_server`.
+4. Baixa o zip do mod, mescla `custom_files/` sobre `game/csgo/`.
+5. Aplica patch do Metamod.
 
-> Use `install.sh` para instalações baseadas neste repositório; `setup.sh` é utilitário para reprovisão rápida com o fork original.
+> Use `install.py` para instalações baseadas neste repositório; `setup.py` é utilitário para reprovisão rápida com o fork original.
