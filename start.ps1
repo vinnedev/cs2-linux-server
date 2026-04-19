@@ -6,6 +6,8 @@ $ServerDir = Join-Path $RootDir "server"
 $ComponentsDir = Join-Path $RootDir "components\csgo"
 $CsgoDir = Join-Path $ServerDir "game\csgo"
 $Cs2Exe = Join-Path $ServerDir "game\bin\win64\cs2.exe"
+$Cs2WorkingDir = Join-Path $ServerDir "game"
+$LogsDir = Join-Path $ServerDir "logs"
 
 function Import-DotEnv {
     param(
@@ -76,12 +78,13 @@ function Resolve-CS2Root {
 
 Import-DotEnv -Path (Join-Path $RootDir ".env")
 
-if ($env:CS2_PATH) {
+if ((-not (Test-Path $Cs2Exe)) -and $env:CS2_PATH) {
     $candidateServerDir = Resolve-CS2Root -CandidatePath $env:CS2_PATH
     if ($candidateServerDir) {
         $ServerDir = $candidateServerDir
         $CsgoDir = Join-Path $ServerDir "game\csgo"
         $Cs2Exe = Join-Path $ServerDir "game\bin\win64\cs2.exe"
+        $Cs2WorkingDir = Join-Path $ServerDir "game"
     }
 }
 
@@ -103,6 +106,11 @@ $rconPassword = if ($env:RCON_PASSWORD) { $env:RCON_PASSWORD } else { "changeme"
 $execCfg = if ($env:EXEC) { $env:EXEC } else { "autoexec.cfg" }
 
 Write-Host "===== Preparando arquivos do servidor =====" -ForegroundColor Cyan
+Write-Host "Runtime local : $ServerDir" -ForegroundColor DarkGray
+Write-Host "Executavel    : $Cs2Exe" -ForegroundColor DarkGray
+Write-Host "Working dir   : $Cs2WorkingDir" -ForegroundColor DarkGray
+
+New-Item -ItemType Directory -Force -Path $LogsDir | Out-Null
 
 $addonsDir = Join-Path $CsgoDir "addons"
 $cfgSettingsDir = Join-Path $CsgoDir "cfg\settings"
@@ -124,7 +132,24 @@ if (Test-Path $windowsAddons) {
 
 Write-Host "Iniciando servidor CS2..." -ForegroundColor Green
 
-$arguments = @(
+function Add-ArgumentPair {
+    param(
+        [System.Collections.Generic.List[string]]$List,
+        [string]$Key,
+        [string]$Value,
+        [switch]$AllowEmpty
+    )
+
+    if ($AllowEmpty -or -not [string]::IsNullOrWhiteSpace($Value)) {
+        $List.Add($Key)
+        if ($null -ne $Value) {
+            $List.Add($Value)
+        }
+    }
+}
+
+$arguments = [System.Collections.Generic.List[string]]::new()
+$baseArguments = @(
     "-dedicated",
     "-console",
     "-usercon",
@@ -137,15 +162,49 @@ $arguments = @(
     "+net_public_adr", $ip,
     "-tickrate", $tickrate,
     "+sv_visiblemaxplayers", $maxplayers,
-    "-authkey", $apiKey,
-    "+sv_setsteamaccount", $steamAccount,
     "+sv_lan", $lan,
-    "+sv_password", $serverPassword,
     "+rcon_password", $rconPassword,
     "+exec", $execCfg
 )
 
-& $Cs2Exe @arguments
+foreach ($argument in $baseArguments) {
+    $arguments.Add($argument)
+}
+
+Add-ArgumentPair -List $arguments -Key "-authkey" -Value $apiKey
+Add-ArgumentPair -List $arguments -Key "+sv_setsteamaccount" -Value $steamAccount
+Add-ArgumentPair -List $arguments -Key "+sv_password" -Value $serverPassword
+
+$quotedArguments = $arguments | ForEach-Object {
+    if ($_ -match '\s') { '"{0}"' -f $_ } else { $_ }
+}
+
+if (Test-Path $ServerDir) {
+    $LogsDir = Join-Path $ServerDir "logs"
+    New-Item -ItemType Directory -Force -Path $LogsDir | Out-Null
+}
+
+$stdoutLog = Join-Path $LogsDir "cs2-stdout.log"
+$stderrLog = Join-Path $LogsDir "cs2-stderr.log"
+
+if (Test-Path $stdoutLog) { Remove-Item $stdoutLog -Force }
+if (Test-Path $stderrLog) { Remove-Item $stderrLog -Force }
+
+Write-Host "Argumentos    : $($quotedArguments -join ' ')" -ForegroundColor DarkGray
+Write-Host "Stdout log    : $stdoutLog" -ForegroundColor DarkGray
+Write-Host "Stderr log    : $stderrLog" -ForegroundColor DarkGray
+
+$process = Start-Process -FilePath $Cs2Exe -ArgumentList $arguments -WorkingDirectory $Cs2WorkingDir -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -Wait -PassThru
+$exitCode = $process.ExitCode
 
 Write-Host ""
-Write-Host "CS2 foi encerrado." -ForegroundColor Yellow
+if ($exitCode -eq 0) {
+    Write-Host "CS2 foi encerrado. ExitCode=0" -ForegroundColor Yellow
+} else {
+    Write-Host "CS2 encerrou com falha. ExitCode=$exitCode" -ForegroundColor Red
+}
+
+if ((Test-Path $stderrLog) -and ((Get-Item $stderrLog).Length -gt 0)) {
+    Write-Host "Ultimas linhas de stderr:" -ForegroundColor Yellow
+    Get-Content $stderrLog | Select-Object -Last 20
+}

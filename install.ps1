@@ -11,6 +11,17 @@ $GameInfoPath = Join-Path $ServerDir "game\csgo\gameinfo.gi"
 $SearchString = "Game`tcsgo/addons/metamod"
 $InsertAfter = "Game_LowViolence`tcsgo_lv"
 
+function Write-Utf8WithoutBom {
+    param(
+        [string]$Path,
+        [string[]]$Lines
+    )
+
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    $content = [string]::Join("`r`n", $Lines)
+    [System.IO.File]::WriteAllText($Path, $content, $encoding)
+}
+
 function Import-DotEnv {
     param(
         [string]$Path
@@ -90,7 +101,13 @@ function Get-SteamLibraryRoots {
             continue
         }
 
-        $steamPath = (Get-ItemProperty -Path $key -ErrorAction SilentlyContinue).SteamPath
+        $registryItem = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+        if (-not $registryItem) {
+            continue
+        }
+
+        $steamPathProperty = $registryItem.PSObject.Properties["SteamPath"]
+        $steamPath = if ($steamPathProperty) { [string]$steamPathProperty.Value } else { $null }
         if ($steamPath) {
             $libraries.Add($steamPath)
         }
@@ -131,12 +148,14 @@ function Get-SteamLibraryRoots {
 }
 
 function Find-ExistingCS2Install {
-    $candidatePaths = [System.Collections.Generic.List[string]]::new()
-
     if ($env:CS2_PATH) {
-        $candidatePaths.Add($env:CS2_PATH)
+        $resolvedFromEnv = Resolve-CS2Root -CandidatePath $env:CS2_PATH
+        if ($resolvedFromEnv) {
+            return $resolvedFromEnv
+        }
     }
 
+    $candidatePaths = [System.Collections.Generic.List[string]]::new()
     $candidatePaths.Add($ServerDir)
 
     foreach ($libraryRoot in Get-SteamLibraryRoots) {
@@ -182,6 +201,54 @@ function Ensure-ServerJunction {
     }
 }
 
+function Ensure-ServerDirectory {
+    if (Test-Path $ServerDir) {
+        $serverItem = Get-Item $ServerDir -Force
+        if ($serverItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            Write-Host "Removendo junction/link existente em server/: $($serverItem.FullName)" -ForegroundColor Yellow
+            cmd /c rmdir $ServerDir | Out-Null
+            Write-Host "Junction removido." -ForegroundColor Green
+        } else {
+            Write-Host "Reutilizando pasta local server/: $($serverItem.FullName)" -ForegroundColor DarkGray
+        }
+    }
+
+    if (-not (Test-Path $ServerDir)) {
+        Write-Host "Criando pasta local server/: $ServerDir" -ForegroundColor Yellow
+        New-Item -ItemType Directory -Force -Path $ServerDir | Out-Null
+        Write-Host "Pasta server/ criada." -ForegroundColor Green
+    }
+}
+
+function Sync-Directory {
+    param(
+        [string]$SourcePath,
+        [string]$DestinationPath
+    )
+
+    Ensure-ServerDirectory
+
+    $source = (Get-Item $SourcePath).FullName
+    $destination = (Get-Item $DestinationPath).FullName
+    $startedAt = Get-Date
+
+    Write-Host "Sincronizando instalacao base do CS2..." -ForegroundColor Cyan
+    Write-Host "Origem : $source" -ForegroundColor DarkGray
+    Write-Host "Destino: $destination" -ForegroundColor DarkGray
+    Write-Host "Isso pode levar varios minutos na primeira copia." -ForegroundColor DarkGray
+    Write-Host "Saida do robocopy:" -ForegroundColor DarkGray
+
+    & robocopy $source $destination /E /R:2 /W:1 /ETA /TEE
+    $robocopyExitCode = $LASTEXITCODE
+    $elapsed = (Get-Date) - $startedAt
+
+    Write-Host "Robocopy finalizado com codigo $robocopyExitCode em $([int]$elapsed.TotalMinutes)m $($elapsed.Seconds)s." -ForegroundColor Cyan
+
+    if ($robocopyExitCode -gt 7) {
+        throw "Falha ao copiar arquivos de '$source' para '$destination' via robocopy. Codigo: $robocopyExitCode"
+    }
+}
+
 Import-DotEnv -Path (Join-Path $RootDir ".env")
 
 # ===== [1/4] SteamCMD =====
@@ -204,7 +271,7 @@ Write-Host "===== [2/4] Instalando/Atualizando CS2 (appid 730) =====" -Foregroun
 $existingInstall = Find-ExistingCS2Install
 if ($existingInstall) {
     Write-Host "Usando instalacao CS2 existente: $existingInstall" -ForegroundColor Yellow
-    Ensure-ServerJunction -TargetPath $existingInstall
+    Sync-Directory -SourcePath $existingInstall -DestinationPath $ServerDir
 } else {
     Write-Host "Nenhuma instalacao existente encontrada. Baixando via SteamCMD..." -ForegroundColor Yellow
     New-Item -ItemType Directory -Force -Path $ServerDir | Out-Null
@@ -238,7 +305,7 @@ if ($content -match "csgo/addons/metamod") {
             $newLines += "`t`t`tGame`tcsgo/addons/metamod"
         }
     }
-    $newLines | Set-Content $GameInfoPath -Encoding UTF8
+    Write-Utf8WithoutBom -Path $GameInfoPath -Lines $newLines
     Write-Host "Patch aplicado." -ForegroundColor Green
 }
 
