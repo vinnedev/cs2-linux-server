@@ -91,6 +91,8 @@ download_and_extract_latest_release() {
 		return
 	fi
 
+	local root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+	local components_dir="$root_dir/components/csgo"
 	local repo_name=$(echo "$repo_url" | awk -F'github.com/' '{print $2}')
 	local latest_release_urls=$(curl -s "https://api.github.com/repos/${repo_name}/releases/latest" | grep "browser_download_url" | cut -d '"' -f 4)
 
@@ -108,7 +110,7 @@ download_and_extract_latest_release() {
 		local temp_unzip_dir="$temp_dir"
 
 		if [[ "$temp_file" == *"windows"* ]]; then
-			temp_unzip_dir="$temp_unzip_dir/windows"
+			continue
 		elif [[ "$temp_file" == *"linux"* ]]; then
 			temp_unzip_dir="$temp_unzip_dir/linux"
 		fi
@@ -125,7 +127,18 @@ download_and_extract_latest_release() {
 		*) echo "Unsupported file format: $temp_file" ;;
 		esac
 	done
-	echo "Latest release downloaded and extracted to $temp_dir"
+
+	if [ -d "$temp_dir/addons" ]; then
+		cp -R "$temp_dir/addons/." "$components_dir/addons/"
+		echo "Deployed addons -> $components_dir/addons/"
+	fi
+	if [ -d "$temp_dir/cfg" ]; then
+		cp -R "$temp_dir/cfg/." "$components_dir/cfg/"
+		echo "Deployed cfg -> $components_dir/cfg/"
+	fi
+
+	rm -f ./tmp/*.zip ./tmp/*.tar.gz 2>/dev/null
+	echo "Updated and deployed from $temp_dir to components/"
 }
 
 main() {
