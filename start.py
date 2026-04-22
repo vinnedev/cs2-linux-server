@@ -20,19 +20,18 @@ from _common import (  # noqa: E402
     sudo_prefix,
     which,
 )
-from apply_components_overlay import apply_overlay  # noqa: E402
 
 
 DEFAULTS = {
     "PORT": "27015",
     "IP": "0.0.0.0",
     "TICKRATE": "64",
-    "MAXPLAYERS": "16",
+    "MAXPLAYERS": "10",
     "API_KEY": "",
     "STEAM_ACCOUNT": "",
     "LAN": "0",
     "SERVER_PASSWORD": "",
-    "RCON_PASSWORD": "changeme",
+    "RCON_PASSWORD": "12345678",
     "EXEC": "autoexec.cfg",
 }
 
@@ -113,10 +112,6 @@ def main() -> None:
         sys.exit(1)
     if not os.access(cs2_bin, os.X_OK):
         os.chmod(cs2_bin, 0o755)
-
-    csgo_dir = cs2_bin.parents[2] / "csgo"
-    log.section("Preparing server files")
-    apply_overlay(csgo_dir)
 
     log.section("Firewall")
     open_firewall_ports(os.environ["PORT"])

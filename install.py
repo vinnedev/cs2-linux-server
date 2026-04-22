@@ -20,8 +20,6 @@ from _common import (  # noqa: E402
     sudo_prefix,
     which,
 )
-from apply_components_overlay import apply_overlay  # noqa: E402
-from patch_gameinfo import patch as patch_gameinfo  # noqa: E402
 
 
 STEAMCMD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
@@ -95,13 +93,11 @@ def main() -> None:
     log.section("CS2 dedicated server installer")
     log.info(f"Project root: {project_root()}")
     log.info(f"Running in Docker: {is_docker()}  root: {is_root()}")
-    log.set_plan(5)
+    log.set_plan(3)
 
     root = project_root()
     steamcmd_dir = root / "steamcmd"
     server_dir = root / "server"
-    csgo_dir = server_dir / "game" / "csgo"
-    gameinfo = csgo_dir / "gameinfo.gi"
 
     log.step("Verifying system dependencies")
     install_system_packages()
@@ -112,15 +108,6 @@ def main() -> None:
 
     log.step("Installing CS2 via SteamCMD (appid 730)")
     run_steamcmd(steamcmd_sh, server_dir)
-
-    log.step("Patching gameinfo.gi for Metamod")
-    if not gameinfo.exists():
-        log.error(f"Expected {gameinfo} after SteamCMD install")
-        sys.exit(1)
-    patch_gameinfo(gameinfo)
-
-    log.step("Applying components overlay")
-    apply_overlay(csgo_dir)
 
     log.ok("Setup complete. Run: python3 start.py")
 
