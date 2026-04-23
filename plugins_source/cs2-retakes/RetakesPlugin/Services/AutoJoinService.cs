@@ -10,13 +10,15 @@ public class AutoJoinService
     private const float RetryDelaySeconds = 1.0f;
 
     private readonly RetakesPlugin _plugin;
+    private readonly ChatMessageService _chatMessageService;
     private readonly HashSet<ulong> _welcomedPlayers = [];
     private readonly HashSet<ulong> _pendingAutoJoin = [];
     private readonly Dictionary<ulong, int> _autoJoinAttempts = [];
 
-    public AutoJoinService(RetakesPlugin plugin)
+    public AutoJoinService(RetakesPlugin plugin, ChatMessageService chatMessageService)
     {
         _plugin = plugin;
+        _chatMessageService = chatMessageService;
     }
 
     public void OnMapStart()
@@ -37,8 +39,11 @@ public class AutoJoinService
     {
         if (_welcomedPlayers.Add(player.SteamID))
         {
-            player.PrintToChat("\x04[ABREU] \x01Bem vindo ao servidor!");
-            player.PrintToChat($"\x01Ola, \x03{player.PlayerName}\x01! Personalize suas armas com \x02!ws\x01.");
+            _chatMessageService.Send(player, "[{green}ABREU{default}] Bem vindo ao servidor!");
+            _chatMessageService.Send(
+                player,
+                $"Ola, {{lightgreen}}{player.PlayerName}{{default}}! Comandos: {{gold}}!ws{{default}} skins, {{gold}}!a{{default}}/{{gold}}!w{{default}} menu de armas, {{gold}}!awp{{default}} fila da AWP."
+            );
         }
 
         if (player.Team is CsTeam.Spectator or CsTeam.None)

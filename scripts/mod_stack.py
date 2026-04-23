@@ -179,16 +179,26 @@ def validate_runtime_stack(csgo_dir: Path) -> None:
 
 def ensure_exec_cfg(csgo_dir: Path, exec_name: str) -> None:
     if not exec_name:
-        return
+        exec_name = "autoexec.cfg"
 
     cfg_name = exec_name if exec_name.endswith(".cfg") else f"{exec_name}.cfg"
     cfg_path = csgo_dir / "cfg" / cfg_name
-    if cfg_path.exists():
+    ensure_cfg_file(cfg_path, "// Created automatically by install.py\n")
+
+    retakes_cfg_path = csgo_dir / "cfg" / "cs2-retakes" / "retakes.cfg"
+    ensure_cfg_file(
+        retakes_cfg_path,
+        "// Created automatically by install.py for RetakesPlugin startup override.\n",
+    )
+
+
+def ensure_cfg_file(path: Path, content: str) -> None:
+    if path.exists():
         return
 
-    cfg_path.parent.mkdir(parents=True, exist_ok=True)
-    cfg_path.write_text("// Created automatically by install.py\n")
-    log.ok(f"Created missing cfg/{cfg_name}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    log.ok(f"Created missing {path.relative_to(path.parents[2])}")
 
 
 def maybe_build_plugins() -> None:

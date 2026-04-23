@@ -163,6 +163,7 @@ public class RoundEventHandlers
 
         Logger.LogDebug("Round", $"EnableFallbackAllocation: {_enableFallbackAllocation}");
 
+        _plugin.StartBuyWindow(RetakesPlugin.BuyWindowSeconds);
         _buyService.PrepareRound(_gameManager.QueueManager.ActivePlayers);
         _plugin.PrepareRoundAwpOwners(_gameManager.QueueManager.ActivePlayers);
 

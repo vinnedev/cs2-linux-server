@@ -60,6 +60,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     private BuyService? _buyService;
     private AntiAfkService? _antiAfkService;
     private AnnouncementService? _announcementService;
+    private ChatMessageService? _chatMessageService;
     private RoundEventHandlers? _roundEventHandlers;
     private PlayerEventHandlers? _playerEventHandlers;
 
@@ -124,6 +125,8 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
         AddCommandListener("jointeam", OnCommandJoinTeam);
         AddCommandListener("buy", OnCommandBuy);
         AddCommandListener("buymenu", OnCommandBuyMenu);
+        AddCommandListener("autobuy", OnCommandBlockedNativeBuyShortcut);
+        AddCommandListener("rebuy", OnCommandBlockedNativeBuyShortcut);
 
         var retakesPluginEventSender = new RetakesPluginEventSender();
         Capabilities.RegisterPluginCapability(RetakesPluginEventSenderCapability, () => retakesPluginEventSender);
@@ -178,7 +181,8 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
             // Initialize Managers
             _spawnManager = new SpawnManager(_mapConfigService);
             _allocationService = new AllocationService(_random);
-            _autoJoinService = new AutoJoinService(this);
+            _chatMessageService = new ChatMessageService(this);
+            _autoJoinService = new AutoJoinService(this, _chatMessageService);
             _buyService = new BuyService(this, _random);
             _antiAfkService = new AntiAfkService(this);
 
@@ -419,18 +423,23 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
             return HookResult.Handled;
         }
 
-        player!.PrintToChat($"{Localizer["retakes.prefix"]} Compra nativa desativada. Use !a para ver as armas ou !w <arma> para equipar.");
+        var selectedItem = commandInfo.ArgCount >= 2 ? commandInfo.GetArg(1).Trim().Trim('"') : null;
+        _buyService?.TryHandleBuyCommand(player!, selectedItem, _allocationService);
         return HookResult.Handled;
     }
 
     private HookResult OnCommandBuyMenu(CCSPlayerController? player, CommandInfo commandInfo)
     {
-        if (!PlayerHelper.IsValid(player))
+        return HookResult.Continue;
+    }
+
+    private HookResult OnCommandBlockedNativeBuyShortcut(CCSPlayerController? player, CommandInfo commandInfo)
+    {
+        if (PlayerHelper.IsValid(player))
         {
-            return HookResult.Continue;
+            player!.PrintToChat($"{Localizer["retakes.prefix"]} Rebuy e autobuy nao sao usados no retake. Escolha a arma pelo menu ou com !a.");
         }
 
-        player!.PrintToChat($"{Localizer["retakes.prefix"]} Menu de compra nativo desativado. Use !a ou !w.");
         return HookResult.Handled;
     }
 
@@ -505,9 +514,12 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
         _buyWindowToken++;
         var token = _buyWindowToken;
 
-        // Retakes starts with the bomb already planted, so force the server buy
-        // status open during the configured window instead of relying on vanilla timing.
-        Server.ExecuteCommand("sv_buy_status_override 3");
+        // Keep the server cvars aligned with the intended retake buy rules.
+        // sv_buy_status_override=0 means both teams can buy; 3 would disable buying.
+        Server.ExecuteCommand($"mp_buytime {BuyWindowSeconds:0}");
+        Server.ExecuteCommand("mp_buy_anywhere 1");
+        Server.ExecuteCommand("mp_buy_during_immunity 1");
+        Server.ExecuteCommand("sv_buy_status_override 0");
 
         AddTimer(durationSeconds, () =>
         {
@@ -517,7 +529,6 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
             }
 
             _buyWindowOpen = false;
-            Server.ExecuteCommand("sv_buy_status_override 0");
         });
     }
 

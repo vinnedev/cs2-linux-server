@@ -36,6 +36,7 @@ DEFAULTS = {
 }
 
 FIXED_TICKRATE = "128"
+PLUGIN_EXEC_CFG = "cs2-retakes/retakes.cfg"
 
 
 def load_environment(root: Path) -> None:
@@ -76,7 +77,7 @@ def open_firewall_ports(port: str) -> None:
 
 def build_cs2_command(root: Path, cs2_bin: Path) -> list[str]:
     env = os.environ
-    return [
+    cmd = [
         str(cs2_bin),
         "-game", "csgo",
         "-dedicated",
@@ -98,6 +99,12 @@ def build_cs2_command(root: Path, cs2_bin: Path) -> list[str]:
         "+rcon_password", env.get("RCON_PASSWORD", "12345678"),
         "+exec", env.get("EXEC", "autoexec.cfg"),
     ]
+
+    startup_exec = env.get("EXEC", "autoexec.cfg").removeprefix("cfg/").strip()
+    if startup_exec != PLUGIN_EXEC_CFG:
+        cmd.extend(["+exec", PLUGIN_EXEC_CFG])
+
+    return cmd
 
 
 def main() -> None:

@@ -3,12 +3,14 @@ using CounterStrikeSharp.API.Modules.Entities.Constants;
 using CounterStrikeSharp.API.Modules.Utils;
 using RetakesPlugin.Utils;
 using RetakesPluginShared.Enums;
+using System.Text.Json;
 
 namespace RetakesPlugin.Services;
 
 public enum RoundBuyType
 {
     Full,
+    Semi,
     Force
 }
 
@@ -16,42 +18,66 @@ public readonly record struct BuyLoadout(CsItem PrimaryWeapon, CsItem SecondaryW
 
 public sealed class BuyService
 {
-    private sealed record WeaponChoice(string Alias, string DisplayName, CsItem Item, string Category);
+    private sealed record WeaponChoice(string Alias, string DisplayName, CsItem Item, string Category, params string[] Keywords);
     private sealed record MenuState(int Depth, string? Category);
+    private sealed class PersistedPreferences
+    {
+        public Dictionary<string, Dictionary<string, string>> Players { get; set; } = [];
+    }
 
     private static readonly WeaponChoice[] TerroristFullChoices =
     [
-        new("ak", "AK-47", CsItem.AK47, "Rifles"),
-        new("sg", "SG 553", CsItem.SG556, "Rifles"),
-        new("mac10", "MAC-10", CsItem.Mac10, "SMGs")
+        new("ak", "AK-47", CsItem.AK47, "Rifles", "ak", "ak47", "weapon_ak47"),
+        new("sg", "SG 553", CsItem.SG556, "Rifles", "sg", "sg553", "krieg", "weapon_sg556"),
+        new("galil", "Galil", CsItem.Mac10, "Rifles", "galil")
     ];
 
     private static readonly WeaponChoice[] CounterTerroristFullChoices =
     [
-        new("m4", "M4A1-S", CsItem.M4A1S, "Rifles"),
-        new("m4a4", "M4A4", CsItem.M4A4, "Rifles"),
-        new("aug", "AUG", CsItem.AUG, "Rifles"),
-        new("famas", "FAMAS", CsItem.Famas, "Rifles")
+        new("m4", "M4A1-S", CsItem.M4A1S, "Rifles", "m4", "m4a1s", "m4a1_silencer", "weapon_m4a1_silencer"),
+        new("m4a4", "M4A4", CsItem.M4A4, "Rifles", "m4a4", "weapon_m4a1"),
+        new("aug", "AUG", CsItem.AUG, "Rifles", "aug", "weapon_aug"),
+        new("famas", "FAMAS", CsItem.Famas, "Rifles", "famas", "weapon_famas")
+    ];
+
+    private static readonly WeaponChoice[] TerroristSemiChoices =
+    [
+        new("deagle", "Desert Eagle", CsItem.Deagle, "Pistols", "deagle", "weapon_deagle"),
+        new("p250", "P250", CsItem.P250, "Pistols", "p250", "weapon_p250"),
+        new("glock", "Glock-18", CsItem.Glock18, "Pistols", "glock", "weapon_glock")
+    ];
+
+    private static readonly WeaponChoice[] CounterTerroristSemiChoices =
+    [
+        new("deagle", "Desert Eagle", CsItem.Deagle, "Pistols", "deagle", "weapon_deagle"),
+        new("p250", "P250", CsItem.P250, "Pistols", "p250", "weapon_p250"),
+        new("usp", "USP-S", CsItem.USPS, "Pistols", "usp", "usp-s", "weapon_usp_silencer")
     ];
 
     private static readonly WeaponChoice[] TerroristForceChoices =
     [
-        new("ak", "AK-47", CsItem.AK47, "Rifles"),
-        new("mac10", "MAC-10", CsItem.Mac10, "SMGs"),
-        new("ump", "UMP-45", CsItem.UMP45, "SMGs")
+        new("mac10", "MAC-10", CsItem.Mac10, "SMGs", "mac10", "mac", "weapon_mac10"),
+        new("ump", "UMP-45", CsItem.UMP45, "SMGs", "ump", "ump45", "weapon_ump45"),
+        new("nova", "Nova", CsItem.Nova, "Shotguns", "nova", "weapon_nova"),
+        new("xm", "XM1014", CsItem.XM1014, "Shotguns", "xm", "xm1014", "weapon_xm1014"),
+        new("sawedoff", "Sawed-Off", CsItem.SawedOff, "Shotguns", "sawedoff", "sawed-off", "weapon_sawedoff")
     ];
 
     private static readonly WeaponChoice[] CounterTerroristForceChoices =
     [
-        new("famas", "FAMAS", CsItem.Famas, "Rifles"),
-        new("mp9", "MP9", CsItem.MP9, "SMGs"),
-        new("ump", "UMP-45", CsItem.UMP45, "SMGs")
+        new("mp9", "MP9", CsItem.MP9, "SMGs", "mp9", "weapon_mp9"),
+        new("ump", "UMP-45", CsItem.UMP45, "SMGs", "ump", "ump45", "weapon_ump45"),
+        new("nova", "Nova", CsItem.Nova, "Shotguns", "nova", "weapon_nova"),
+        new("xm", "XM1014", CsItem.XM1014, "Shotguns", "xm", "xm1014", "weapon_xm1014"),
+        new("mag7", "MAG-7", CsItem.MAG7, "Shotguns", "mag7", "mag-7", "weapon_mag7")
     ];
 
     private readonly RetakesPlugin _plugin;
     private readonly Random _random;
     private readonly Dictionary<ulong, CsItem> _selectedWeapons = [];
     private readonly Dictionary<ulong, MenuState> _menuStates = [];
+    private readonly string _preferencesPath;
+    private PersistedPreferences _persistedPreferences = new();
 
     public RoundBuyType CurrentRoundBuyType { get; private set; } = RoundBuyType.Full;
 
@@ -59,6 +85,8 @@ public sealed class BuyService
     {
         _plugin = plugin;
         _random = random;
+        _preferencesPath = Path.Combine(_plugin.ModuleDirectory, "buy_preferences.json");
+        LoadPreferences();
     }
 
     public void OnMapStart()
@@ -70,7 +98,13 @@ public sealed class BuyService
 
     public void PrepareRound(IEnumerable<CCSPlayerController> activePlayers)
     {
-        CurrentRoundBuyType = _random.NextDouble() < 0.65 ? RoundBuyType.Full : RoundBuyType.Force;
+        var roll = _random.NextDouble();
+        CurrentRoundBuyType = roll switch
+        {
+            < 0.45 => RoundBuyType.Full,
+            < 0.70 => RoundBuyType.Semi,
+            _ => RoundBuyType.Force
+        };
 
         var activeSteamIds = activePlayers
             .Where(PlayerHelper.IsValid)
@@ -92,12 +126,24 @@ public sealed class BuyService
         var allowedChoices = GetChoices(player);
         var primaryWeapon = allowedChoices[0].Item;
 
+        var persistedChoice = TryGetPersistedChoice(player);
+        if (persistedChoice != null)
+        {
+            primaryWeapon = persistedChoice.Item;
+        }
+
         if (_selectedWeapons.TryGetValue(player.SteamID, out var selectedWeapon) && allowedChoices.Any(choice => choice.Item == selectedWeapon))
         {
             primaryWeapon = selectedWeapon;
         }
 
-        var secondaryWeapon = CurrentRoundBuyType == RoundBuyType.Full ? CsItem.Deagle : CsItem.P250;
+        var secondaryWeapon = CurrentRoundBuyType switch
+        {
+            RoundBuyType.Full => CsItem.Deagle,
+            RoundBuyType.Semi => primaryWeapon,
+            _ => CsItem.P250
+        };
+
         return new BuyLoadout(primaryWeapon, secondaryWeapon);
     }
 
@@ -151,6 +197,13 @@ public sealed class BuyService
             return;
         }
 
+        var matchedChoice = TryFindChoice(player!, normalizedAlias);
+        if (matchedChoice != null)
+        {
+            TrySelectWeapon(player!, matchedChoice, allocationService);
+            return;
+        }
+
         ShowOptions(player!);
     }
 
@@ -161,11 +214,10 @@ public sealed class BuyService
             return;
         }
 
-        var plainMessage = $"RETAKE {bombsite} - {GetRoundLabel()} BUY";
-        var htmlMessage = $"<font color='#f7c948'><b>RETAKE {bombsite}</b></font><br><font color='#6ee7b7'>{GetRoundLabel()} BUY</font>";
+        var htmlMessage = "<font color='#22c55e'><b>RETAKE</b></font> "
+                        + $"<font color='#ef4444'><b>{bombsite}</b></font>";
 
-        player.PrintToCenter(plainMessage);
-        player.PrintToCenterHtml(htmlMessage);
+        player.PrintToCenterHtml(htmlMessage, 2);
     }
 
     public string GetRoundLabel()
@@ -226,9 +278,11 @@ public sealed class BuyService
         }
 
         _selectedWeapons[player.SteamID] = choice.Item;
+        SavePreference(player, choice);
 
         if (allocationService != null)
         {
+            DropCurrentPrimary(player);
             ApplyRoundLoadout(player, allocationService, false);
         }
 
@@ -253,7 +307,7 @@ public sealed class BuyService
             .Distinct()
             .ToList();
 
-        player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} {GetRoundLabel()} BUY: escolha uma categoria.");
+        player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} {GetRoundLabel()} BUY: escolha uma categoria com !1, !2, etc.");
 
         for (var index = 0; index < categories.Count; index++)
         {
@@ -261,6 +315,7 @@ public sealed class BuyService
         }
 
         player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} AWP: use !awp");
+        player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} Comandos: !a abre menu, !0 volta, !awp entra na fila.");
     }
 
     private void ShowCategoryMenu(CCSPlayerController player, string category)
@@ -269,11 +324,121 @@ public sealed class BuyService
             .Where(choice => choice.Category == category)
             .ToList();
 
-        player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} {category}: escolha a arma. Use !a para voltar ao menu inicial.");
+        player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} {GetRoundLabel()} > {category}: use !1, !2, etc. para escolher.");
 
         for (var index = 0; index < categoryChoices.Count; index++)
         {
             player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} {index + 1} - {categoryChoices[index].DisplayName}");
+        }
+
+        player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} !0 volta para categorias. !awp entra na fila da AWP.");
+    }
+
+    private WeaponChoice? TryFindChoice(CCSPlayerController player, string token)
+    {
+        return GetChoices(player).FirstOrDefault(choice =>
+            choice.Alias == token ||
+            choice.Keywords.Any(keyword => keyword.Equals(token, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void DropCurrentPrimary(CCSPlayerController player)
+    {
+        var weaponServices = player.PlayerPawn.Value?.WeaponServices?.As<CCSPlayer_WeaponServices>();
+        if (weaponServices == null)
+        {
+            return;
+        }
+
+        foreach (var handle in weaponServices.MyWeapons)
+        {
+            var weapon = handle.Value?.As<CCSWeaponBase>();
+            var data = weapon?.VData?.As<CCSWeaponBaseVData>();
+            if (weapon == null || data == null)
+            {
+                continue;
+            }
+
+            if (data.GearSlot == gear_slot_t.GEAR_SLOT_RIFLE)
+            {
+                player.ExecuteClientCommand("slot1");
+                _plugin.AddTimer(0.1f, () =>
+                {
+                    if (PlayerHelper.IsValid(player))
+                    {
+                        player.DropActiveWeapon();
+                    }
+                });
+                return;
+            }
+        }
+    }
+
+    private WeaponChoice? TryGetPersistedChoice(CCSPlayerController player)
+    {
+        if (!_persistedPreferences.Players.TryGetValue(player.SteamID.ToString(), out var playerPreferences))
+        {
+            return null;
+        }
+
+        if (!playerPreferences.TryGetValue(GetPreferenceKey(player), out var alias))
+        {
+            return null;
+        }
+
+        return TryFindChoice(player, alias);
+    }
+
+    private void SavePreference(CCSPlayerController player, WeaponChoice choice)
+    {
+        var steamId = player.SteamID.ToString();
+        if (!_persistedPreferences.Players.TryGetValue(steamId, out var playerPreferences))
+        {
+            playerPreferences = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            _persistedPreferences.Players[steamId] = playerPreferences;
+        }
+
+        playerPreferences[GetPreferenceKey(player)] = choice.Alias;
+        PersistPreferences();
+    }
+
+    private string GetPreferenceKey(CCSPlayerController player)
+    {
+        var team = player.Team == CsTeam.CounterTerrorist ? "ct" : "t";
+        return $"{team}_{CurrentRoundBuyType.ToString().ToLowerInvariant()}";
+    }
+
+    private void LoadPreferences()
+    {
+        try
+        {
+            if (!File.Exists(_preferencesPath))
+            {
+                _persistedPreferences = new PersistedPreferences();
+                return;
+            }
+
+            var json = File.ReadAllText(_preferencesPath);
+            _persistedPreferences = JsonSerializer.Deserialize<PersistedPreferences>(json) ?? new PersistedPreferences();
+        }
+        catch
+        {
+            _persistedPreferences = new PersistedPreferences();
+        }
+    }
+
+    private void PersistPreferences()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(_persistedPreferences, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            File.WriteAllText(_preferencesPath, json);
+        }
+        catch
+        {
+            // Ignore persistence failures to avoid interrupting gameplay.
         }
     }
 
@@ -295,6 +460,8 @@ public sealed class BuyService
         {
             (CsTeam.Terrorist, RoundBuyType.Full) => TerroristFullChoices,
             (CsTeam.CounterTerrorist, RoundBuyType.Full) => CounterTerroristFullChoices,
+            (CsTeam.Terrorist, RoundBuyType.Semi) => TerroristSemiChoices,
+            (CsTeam.CounterTerrorist, RoundBuyType.Semi) => CounterTerroristSemiChoices,
             (CsTeam.Terrorist, RoundBuyType.Force) => TerroristForceChoices,
             (CsTeam.CounterTerrorist, RoundBuyType.Force) => CounterTerroristForceChoices,
             _ => []
