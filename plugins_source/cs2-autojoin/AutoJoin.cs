@@ -61,8 +61,8 @@ public class AutojoinPlugin : BasePlugin
 
         if (_welcomedPlayers.Add(player.SteamID))
         {
-            player.PrintToChat("\x04[ABREU] \x01Bem-vindo ao servidor!");
-            player.PrintToChat($"\x01Olá, \x03{player.PlayerName}\x01! Personalize suas armas com \x02!ws\x01.");
+            player.PrintToChat("\x04[ABREU] \x01Bem vindo ao servidor!");
+            player.PrintToChat($"\x01Ola, \x03{player.PlayerName}\x01! Personalize suas armas com \x02!ws\x01.");
         }
 
         return HookResult.Continue;

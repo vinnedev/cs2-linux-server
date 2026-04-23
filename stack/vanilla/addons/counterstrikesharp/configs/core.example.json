@@ -5,7 +5,7 @@
     "PluginHotReloadEnabled": true,
     "PluginAutoLoadEnabled": true,
     "PluginResolveNugetPackages": false,
-    "ServerLanguage": "en",
+    "ServerLanguage": "pt-BR",
     "UnlockConCommands": true,
     "UnlockConVars": true,
     "AutoUpdateEnabled": true,

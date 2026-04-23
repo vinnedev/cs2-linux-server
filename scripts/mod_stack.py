@@ -120,13 +120,22 @@ def ensure_css_core_config(configs_dir: Path) -> None:
     else:
         core = {}
 
-    if core.get("FollowCS2ServerGuidelines") is False:
+    changed = False
+
+    if core.get("FollowCS2ServerGuidelines") is not False:
+        core["FollowCS2ServerGuidelines"] = False
+        changed = True
+
+    if core.get("ServerLanguage") != "pt-BR":
+        core["ServerLanguage"] = "pt-BR"
+        changed = True
+
+    if not changed:
         return
 
-    core["FollowCS2ServerGuidelines"] = False
     core_path.parent.mkdir(parents=True, exist_ok=True)
     core_path.write_text(json.dumps(core, indent=4) + "\n")
-    log.ok(f"Configured {core_path} with FollowCS2ServerGuidelines=false (required by InventorySimulator)")
+    log.ok(f"Configured {core_path} with FollowCS2ServerGuidelines=false and ServerLanguage=pt-BR")
 
 
 def fix_exec_bits(csgo_dir: Path) -> None:
