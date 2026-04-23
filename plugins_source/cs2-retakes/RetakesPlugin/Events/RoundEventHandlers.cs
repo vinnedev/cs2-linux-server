@@ -186,7 +186,7 @@ public class RoundEventHandlers
             {
                 Logger.LogDebug("Round", $"Asignando armas a {player.PlayerName} (fallback allocation habilitado)");
                 _buyService.ApplyRoundLoadout(player, _allocationService, _plugin.ShouldReceiveAwpThisRound(player));
-                _buyService.ShowRetakeStatus(player, _currentBombsite);
+                _plugin.ShowRetakeStatus(player);
             }
             else
             {
@@ -236,11 +236,6 @@ public class RoundEventHandlers
         Logger.LogInfo("Round", "Bomb planted");
         _plugin.StartBuyWindow(RetakesPlugin.BuyWindowSeconds);
         _plugin.ShowRetakeStatusForActivePlayers();
-
-        _plugin.AddTimer(4.1f, () =>
-        {
-            _announcementService.AnnounceBombsite(_currentBombsite, true);
-        });
 
         return HookResult.Continue;
     }

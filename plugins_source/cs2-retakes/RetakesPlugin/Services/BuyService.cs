@@ -29,7 +29,7 @@ public sealed class BuyService
     [
         new("ak", "AK-47", CsItem.AK47, "Rifles", "ak", "ak47", "weapon_ak47"),
         new("sg", "SG 553", CsItem.SG556, "Rifles", "sg", "sg553", "krieg", "weapon_sg556"),
-        new("galil", "Galil", CsItem.Mac10, "Rifles", "galil")
+        new("galil", "Galil", CsItem.Galil, "Rifles", "galil", "galilar", "weapon_galilar")
     ];
 
     private static readonly WeaponChoice[] CounterTerroristFullChoices =
@@ -44,20 +44,33 @@ public sealed class BuyService
     [
         new("deagle", "Desert Eagle", CsItem.Deagle, "Pistols", "deagle", "weapon_deagle"),
         new("p250", "P250", CsItem.P250, "Pistols", "p250", "weapon_p250"),
-        new("glock", "Glock-18", CsItem.Glock18, "Pistols", "glock", "weapon_glock")
+        new("glock", "Glock-18", CsItem.Glock18, "Pistols", "glock", "weapon_glock"),
+        new("tec9", "Tec-9", CsItem.Tec9, "Pistols", "tec9", "tec-9", "weapon_tec9"),
+        new("duals", "Dual Berettas", CsItem.DualBerettas, "Pistols", "duals", "dualies", "elite", "weapon_elite"),
+        new("cz", "CZ75-Auto", CsItem.CZ75, "Pistols", "cz", "cz75", "cz75-auto", "weapon_cz75a"),
+        new("r8", "R8 Revolver", CsItem.R8, "Pistols", "r8", "revolver", "weapon_revolver")
     ];
 
     private static readonly WeaponChoice[] CounterTerroristSemiChoices =
     [
         new("deagle", "Desert Eagle", CsItem.Deagle, "Pistols", "deagle", "weapon_deagle"),
         new("p250", "P250", CsItem.P250, "Pistols", "p250", "weapon_p250"),
-        new("usp", "USP-S", CsItem.USPS, "Pistols", "usp", "usp-s", "weapon_usp_silencer")
+        new("usp", "USP-S", CsItem.USPS, "Pistols", "usp", "usp-s", "weapon_usp_silencer"),
+        new("fiveseven", "Five-SeveN", CsItem.FiveSeven, "Pistols", "fiveseven", "five-seven", "57", "weapon_fiveseven"),
+        new("duals", "Dual Berettas", CsItem.DualBerettas, "Pistols", "duals", "dualies", "elite", "weapon_elite"),
+        new("p2000", "P2000", CsItem.P2000, "Pistols", "p2000", "hkp2000", "weapon_hkp2000"),
+        new("cz", "CZ75-Auto", CsItem.CZ75, "Pistols", "cz", "cz75", "cz75-auto", "weapon_cz75a"),
+        new("r8", "R8 Revolver", CsItem.R8, "Pistols", "r8", "revolver", "weapon_revolver")
     ];
 
     private static readonly WeaponChoice[] TerroristForceChoices =
     [
         new("mac10", "MAC-10", CsItem.Mac10, "SMGs", "mac10", "mac", "weapon_mac10"),
+        new("mp7", "MP7", CsItem.MP7, "SMGs", "mp7", "weapon_mp7"),
+        new("mp5", "MP5-SD", CsItem.MP5SD, "SMGs", "mp5", "mp5sd", "weapon_mp5sd"),
         new("ump", "UMP-45", CsItem.UMP45, "SMGs", "ump", "ump45", "weapon_ump45"),
+        new("bizon", "PP-Bizon", CsItem.PPBizon, "SMGs", "bizon", "ppbizon", "weapon_bizon"),
+        new("p90", "P90", CsItem.P90, "SMGs", "p90", "weapon_p90"),
         new("nova", "Nova", CsItem.Nova, "Shotguns", "nova", "weapon_nova"),
         new("xm", "XM1014", CsItem.XM1014, "Shotguns", "xm", "xm1014", "weapon_xm1014"),
         new("sawedoff", "Sawed-Off", CsItem.SawedOff, "Shotguns", "sawedoff", "sawed-off", "weapon_sawedoff")
@@ -66,7 +79,11 @@ public sealed class BuyService
     private static readonly WeaponChoice[] CounterTerroristForceChoices =
     [
         new("mp9", "MP9", CsItem.MP9, "SMGs", "mp9", "weapon_mp9"),
+        new("mp7", "MP7", CsItem.MP7, "SMGs", "mp7", "weapon_mp7"),
+        new("mp5", "MP5-SD", CsItem.MP5SD, "SMGs", "mp5", "mp5sd", "weapon_mp5sd"),
         new("ump", "UMP-45", CsItem.UMP45, "SMGs", "ump", "ump45", "weapon_ump45"),
+        new("bizon", "PP-Bizon", CsItem.PPBizon, "SMGs", "bizon", "ppbizon", "weapon_bizon"),
+        new("p90", "P90", CsItem.P90, "SMGs", "p90", "weapon_p90"),
         new("nova", "Nova", CsItem.Nova, "Shotguns", "nova", "weapon_nova"),
         new("xm", "XM1014", CsItem.XM1014, "Shotguns", "xm", "xm1014", "weapon_xm1014"),
         new("mag7", "MAG-7", CsItem.MAG7, "Shotguns", "mag7", "mag-7", "weapon_mag7")
@@ -80,6 +97,7 @@ public sealed class BuyService
     private PersistedPreferences _persistedPreferences = new();
 
     public RoundBuyType CurrentRoundBuyType { get; private set; } = RoundBuyType.Full;
+    public bool IsAwpAllowedThisRound => CurrentRoundBuyType == RoundBuyType.Full;
 
     public BuyService(RetakesPlugin plugin, Random random)
     {
@@ -207,22 +225,14 @@ public sealed class BuyService
         ShowOptions(player!);
     }
 
-    public void ShowRetakeStatus(CCSPlayerController player, Bombsite bombsite)
-    {
-        if (!PlayerHelper.IsValid(player) || player.Team is not (CsTeam.Terrorist or CsTeam.CounterTerrorist))
-        {
-            return;
-        }
-
-        var htmlMessage = "<font color='#22c55e'><b>RETAKE</b></font> "
-                        + $"<font color='#ef4444'><b>{bombsite}</b></font>";
-
-        player.PrintToCenterHtml(htmlMessage, 2);
-    }
-
     public string GetRoundLabel()
     {
-        return CurrentRoundBuyType == RoundBuyType.Full ? "FULL" : "FORCE";
+        return CurrentRoundBuyType switch
+        {
+            RoundBuyType.Full => "FULL",
+            RoundBuyType.Semi => "SEMI",
+            _ => "FORCE"
+        };
     }
 
     private void HandleNumericSelection(CCSPlayerController player, int optionNumber, AllocationService? allocationService)
@@ -292,7 +302,7 @@ public sealed class BuyService
 
     private void TrySelectAwp(CCSPlayerController player)
     {
-        if (!_plugin.IsBuyWindowOpen)
+        if (IsAwpAllowedThisRound && !_plugin.IsBuyWindowOpen)
         {
             player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} Periodo de compra encerrado. A AWP segue na fila para o proximo round.");
         }
@@ -467,4 +477,5 @@ public sealed class BuyService
             _ => []
         };
     }
+
 }

@@ -18,7 +18,7 @@ public static class ServerHelper
         Server.ExecuteCommand("exec cs2-retakes/retakes.cfg");
         Server.ExecuteCommand("mp_buy_anywhere 1");
         Server.ExecuteCommand("mp_buy_during_immunity 1");
-        Server.ExecuteCommand("mp_buytime 10");
+        Server.ExecuteCommand($"mp_buytime {RetakesPlugin.NativeBuyMenuWindowSeconds}");
         Server.ExecuteCommand("sv_buy_status_override 0");
         Logger.LogInfo("Server", "Retakes configuration executed");
     }
@@ -73,7 +73,7 @@ public static class ServerHelper
 
                 // Buy rules
                 mp_buy_anywhere 1
-                mp_buytime 10
+                mp_buytime 60000
                 mp_buy_during_immunity 1
                 sv_buy_status_override 0
                 mp_maxmoney 65535

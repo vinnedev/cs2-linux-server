@@ -128,7 +128,7 @@ A healthy boot should show:
 
 1. Metamod loaded
 2. CounterStrikeSharp initialized
-3. `AutojoinPlugin` loaded
+3. `RetakesPlugin` loaded
 
 After that point, remaining failures are usually related to:
 

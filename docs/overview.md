@@ -43,7 +43,7 @@ flowchart LR
     F --> G["start.py"]
     G --> H["Metamod"]
     H --> I["CounterStrikeSharp"]
-    I --> J["AutojoinPlugin"]
+    I --> J["RetakesPlugin"]
 ```
 
 ## Important Directories

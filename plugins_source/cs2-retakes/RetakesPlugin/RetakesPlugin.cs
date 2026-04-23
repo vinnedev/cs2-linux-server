@@ -27,8 +27,9 @@ namespace RetakesPlugin;
 [MinimumApiVersion(345)]
 public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 {
-    public const string Version = "3.0.4";
+    public const string Version = "3.0.5";
     public const float BuyWindowSeconds = 10.0f;
+    public const int NativeBuyMenuWindowSeconds = 60000;
 
     #region Plugin Info
     public override string ModuleName => "Retakes Plugin";
@@ -61,8 +62,12 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     private AntiAfkService? _antiAfkService;
     private AnnouncementService? _announcementService;
     private ChatMessageService? _chatMessageService;
+    private InstantPlantService? _instantPlantService;
+    private InstantDefuseService? _instantDefuseService;
+    private RetakeStatusService? _retakeStatusService;
     private RoundEventHandlers? _roundEventHandlers;
     private PlayerEventHandlers? _playerEventHandlers;
+    private BombEventHandlers? _bombEventHandlers;
 
     public MapConfigService? MapConfigService => _mapConfigService;
     public SpawnManager? SpawnManager => _spawnManager;
@@ -140,8 +145,16 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
         RegisterEventHandler<EventRoundEnd>(OnRoundEnd);
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
         RegisterEventHandler<EventPlayerDeath>(OnPlayerDeath);
+        RegisterEventHandler<EventBombBeginplant>(OnBombBeginPlant);
+        RegisterEventHandler<EventBombBegindefuse>(OnBombBeginDefuse);
         RegisterEventHandler<EventBombPlanted>(OnBombPlanted, HookMode.Pre);
         RegisterEventHandler<EventBombDefused>(OnBombDefused);
+        RegisterEventHandler<EventGrenadeThrown>(OnGrenadeThrown);
+        RegisterEventHandler<EventInfernoStartburn>(OnInfernoStartBurn);
+        RegisterEventHandler<EventInfernoExtinguish>(OnInfernoExtinguish);
+        RegisterEventHandler<EventInfernoExpire>(OnInfernoExpire);
+        RegisterEventHandler<EventHegrenadeDetonate>(OnHeGrenadeDetonate);
+        RegisterEventHandler<EventMolotovDetonate>(OnMolotovDetonate);
         RegisterEventHandler<EventPlayerDisconnect>(OnPlayerDisconnect, HookMode.Pre);
         RegisterEventHandler<EventPlayerTeam>(OnPlayerTeam, HookMode.Pre);
 
@@ -185,6 +198,9 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
             _autoJoinService = new AutoJoinService(this, _chatMessageService);
             _buyService = new BuyService(this, _random);
             _antiAfkService = new AntiAfkService(this);
+            _instantPlantService = new InstantPlantService(Config.Bomb.IsInstantPlantEnabled, Config.Bomb.IsAutoPlantEnabled);
+            _instantDefuseService = new InstantDefuseService(this, _chatMessageService, Config.Bomb.IsInstantDefuseEnabled, Config.Bomb.InstantDefuseThreatRadius);
+            _retakeStatusService = new RetakeStatusService(this);
 
             _gameManager = new GameManager(
                 this,
@@ -232,6 +248,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
             );
 
             _playerEventHandlers = new PlayerEventHandlers(this, _gameManager, _hasMutedVoices, _autoJoinService, _antiAfkService);
+            _bombEventHandlers = new BombEventHandlers(_instantPlantService, _instantDefuseService);
 
             // Initialize Commands
             _forceBombsiteCommand = new ForceBombsiteCommand(this, _roundEventHandlers);
@@ -340,7 +357,9 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 
     private HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
-        return _roundEventHandlers?.OnRoundStart(@event, info) ?? HookResult.Continue;
+        var result = _roundEventHandlers?.OnRoundStart(@event, info) ?? HookResult.Continue;
+        _bombEventHandlers?.OnRoundStart(@event, info);
+        return result;
     }
 
     private HookResult OnRoundPostStart(EventRoundPoststart @event, GameEventInfo info)
@@ -355,7 +374,9 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 
     private HookResult OnRoundEnd(EventRoundEnd @event, GameEventInfo info)
     {
-        return _roundEventHandlers?.OnRoundEnd(@event, info) ?? HookResult.Continue;
+        var result = _roundEventHandlers?.OnRoundEnd(@event, info) ?? HookResult.Continue;
+        _bombEventHandlers?.OnRoundEnd(@event, info);
+        return result;
     }
 
     private HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
@@ -368,14 +389,58 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
         return _playerEventHandlers?.OnPlayerDeath(@event, info) ?? HookResult.Continue;
     }
 
+    private HookResult OnBombBeginPlant(EventBombBeginplant @event, GameEventInfo info)
+    {
+        return _bombEventHandlers?.OnBombBeginPlant(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnBombBeginDefuse(EventBombBegindefuse @event, GameEventInfo info)
+    {
+        return _bombEventHandlers?.OnBombBeginDefuse(@event, info) ?? HookResult.Continue;
+    }
+
     private HookResult OnBombPlanted(EventBombPlanted @event, GameEventInfo info)
     {
-        return _roundEventHandlers?.OnBombPlanted(@event, info) ?? HookResult.Continue;
+        var result = _roundEventHandlers?.OnBombPlanted(@event, info) ?? HookResult.Continue;
+        _bombEventHandlers?.OnBombPlanted(@event, info);
+        return result;
     }
 
     private HookResult OnBombDefused(EventBombDefused @event, GameEventInfo info)
     {
-        return _roundEventHandlers?.OnBombDefused(@event, info) ?? HookResult.Continue;
+        var result = _roundEventHandlers?.OnBombDefused(@event, info) ?? HookResult.Continue;
+        _bombEventHandlers?.OnBombDefused(@event, info);
+        return result;
+    }
+
+    private HookResult OnGrenadeThrown(EventGrenadeThrown @event, GameEventInfo info)
+    {
+        return _bombEventHandlers?.OnGrenadeThrown(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnInfernoStartBurn(EventInfernoStartburn @event, GameEventInfo info)
+    {
+        return _bombEventHandlers?.OnInfernoStartBurn(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnInfernoExtinguish(EventInfernoExtinguish @event, GameEventInfo info)
+    {
+        return _bombEventHandlers?.OnInfernoExtinguish(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnInfernoExpire(EventInfernoExpire @event, GameEventInfo info)
+    {
+        return _bombEventHandlers?.OnInfernoExpire(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnHeGrenadeDetonate(EventHegrenadeDetonate @event, GameEventInfo info)
+    {
+        return _bombEventHandlers?.OnHeGrenadeDetonate(@event, info) ?? HookResult.Continue;
+    }
+
+    private HookResult OnMolotovDetonate(EventMolotovDetonate @event, GameEventInfo info)
+    {
+        return _bombEventHandlers?.OnMolotovDetonate(@event, info) ?? HookResult.Continue;
     }
 
     private HookResult OnPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
@@ -430,7 +495,25 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 
     private HookResult OnCommandBuyMenu(CCSPlayerController? player, CommandInfo commandInfo)
     {
-        return HookResult.Continue;
+        var gameRules = GameRulesHelper.GetGameRulesOrNull();
+        if (gameRules?.WarmupPeriod == true)
+        {
+            return HookResult.Continue;
+        }
+
+        if (!PlayerHelper.IsValid(player))
+        {
+            return HookResult.Continue;
+        }
+
+        if (_buyWindowOpen)
+        {
+            _buyService?.ShowOptions(player!);
+            return HookResult.Handled;
+        }
+
+        player!.PrintToChat($"{Localizer["retakes.prefix"]} O menu de compra nativo so fica liberado nos primeiros {BuyWindowSeconds:0} segundos do retake.");
+        return HookResult.Handled;
     }
 
     private HookResult OnCommandBlockedNativeBuyShortcut(CCSPlayerController? player, CommandInfo commandInfo)
@@ -486,6 +569,11 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     {
         _roundAwpOwners.Clear();
 
+        if (_buyService == null || !_buyService.IsAwpAllowedThisRound)
+        {
+            return;
+        }
+
         var validActivePlayers = activePlayers
             .Where(PlayerHelper.IsValid)
             .Where(p => p.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist)
@@ -516,7 +604,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 
         // Keep the server cvars aligned with the intended retake buy rules.
         // sv_buy_status_override=0 means both teams can buy; 3 would disable buying.
-        Server.ExecuteCommand($"mp_buytime {BuyWindowSeconds:0}");
+        Server.ExecuteCommand($"mp_buytime {NativeBuyMenuWindowSeconds}");
         Server.ExecuteCommand("mp_buy_anywhere 1");
         Server.ExecuteCommand("mp_buy_during_immunity 1");
         Server.ExecuteCommand("sv_buy_status_override 0");
@@ -542,34 +630,44 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     public void SetCurrentBombsite(Bombsite? bombsite)
     {
         _currentBombsite = bombsite;
+
+        if (bombsite == null)
+        {
+            _retakeStatusService?.EndRound();
+            return;
+        }
+
+        _retakeStatusService?.BeginRound(bombsite.Value);
     }
 
     public void ShowRetakeStatus(CCSPlayerController player)
     {
-        if (_currentBombsite == null || _buyService == null)
+        if (_currentBombsite == null)
         {
             return;
         }
 
-        _buyService.ShowRetakeStatus(player, _currentBombsite.Value);
+        _retakeStatusService?.ShowForPlayer(player);
     }
 
     public void ShowRetakeStatusForActivePlayers()
     {
-        if (_currentBombsite == null || _buyService == null || _gameManager == null)
+        if (_currentBombsite == null || _gameManager == null)
         {
             return;
         }
 
-        foreach (var player in _gameManager.QueueManager.ActivePlayers.Where(PlayerHelper.IsValid))
-        {
-            _buyService.ShowRetakeStatus(player, _currentBombsite.Value);
-        }
+        _retakeStatusService?.ShowForPlayers(_gameManager.QueueManager.ActivePlayers.Where(PlayerHelper.IsValid));
     }
 
     public bool ShouldReceiveAwpThisRound(CCSPlayerController player)
     {
         if (!PlayerHelper.IsValid(player) || player.Team is not (CsTeam.Terrorist or CsTeam.CounterTerrorist))
+        {
+            return false;
+        }
+
+        if (_buyService == null || !_buyService.IsAwpAllowedThisRound)
         {
             return false;
         }
@@ -609,6 +707,12 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 
         _awpOptInPlayers.Add(player.SteamID);
         player.PrintToChat($"{Localizer["retakes.prefix"]} AWP ativada para voce.");
+
+        if (_buyService == null || !_buyService.IsAwpAllowedThisRound)
+        {
+            player.PrintToChat($"{Localizer["retakes.prefix"]} AWP entrou na fila e so sera entregue em rounds FULL.");
+            return;
+        }
 
         if (!tryImmediateGrant || !_buyWindowOpen || !PlayerCanGetImmediateAwp(player))
         {

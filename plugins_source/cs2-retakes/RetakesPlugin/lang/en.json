@@ -17,5 +17,9 @@
   "retakes.teams.almost_scramble": "The terrorists have won {green}{0}{default} rounds in a row - if they win {green}{1} more, {purple}teams will be scrambled.",
   "retakes.teams.win_streak": "The terrorists have won {green}{0}{default} rounds in a row!",
   "retakes.teams.win_streak_over": "The CTs have ended a {green}{0}{default}-round long win streak!",
-  "retakes.teams.admin_scramble": "{0} has set the teams to be scrambled next round."
+  "retakes.teams.admin_scramble": "{0} has set the teams to be scrambled next round.",
+
+  "retakes.instadefuse.not_possible": "Instant defuse is not possible while there is an active grenade threat.",
+  "retakes.instadefuse.successful": "{0} defused with {green}{1}{default} seconds left on the bomb.",
+  "retakes.instadefuse.unsuccessful": "{0} was {lightred}{1}{default} seconds away from defusing."
 }

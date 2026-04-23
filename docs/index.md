@@ -4,13 +4,15 @@
 
 - [Overview](./overview.md)
 - [Architecture](./architecture.md)
+- [Retakes Plugin](./retakes-plugin.md)
 - [Operations](./operations.md)
 
 ## Recommended Reading Order
 
 1. [Overview](./overview.md)
 2. [Architecture](./architecture.md)
-3. [Operations](./operations.md)
+3. [Retakes Plugin](./retakes-plugin.md)
+4. [Operations](./operations.md)
 
 ## Scope
 

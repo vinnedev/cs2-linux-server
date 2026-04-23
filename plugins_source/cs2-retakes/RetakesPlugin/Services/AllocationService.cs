@@ -40,17 +40,29 @@ public class AllocationService
 
     private void AllocateWeapons(CCSPlayerController player, CsItem primaryWeapon, CsItem secondaryWeapon, bool assignAwp)
     {
+        var grantedWeapons = new HashSet<CsItem>();
+
         if (assignAwp)
         {
-            player.GiveNamedItem(CsItem.AWP);
-            player.GiveNamedItem(secondaryWeapon);
+            GiveUniqueWeapon(player, CsItem.AWP, grantedWeapons);
+            GiveUniqueWeapon(player, secondaryWeapon, grantedWeapons);
             player.GiveNamedItem(CsItem.Knife);
             return;
         }
 
-        player.GiveNamedItem(primaryWeapon);
-        player.GiveNamedItem(secondaryWeapon);
+        GiveUniqueWeapon(player, primaryWeapon, grantedWeapons);
+        GiveUniqueWeapon(player, secondaryWeapon, grantedWeapons);
         player.GiveNamedItem(CsItem.Knife);
+    }
+
+    private static void GiveUniqueWeapon(CCSPlayerController player, CsItem weapon, HashSet<CsItem> grantedWeapons)
+    {
+        if (!grantedWeapons.Add(weapon))
+        {
+            return;
+        }
+
+        player.GiveNamedItem(weapon);
     }
 
     private void AllocateGrenades(CCSPlayerController player)

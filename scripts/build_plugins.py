@@ -20,14 +20,13 @@ class Plugin:
 
 
 PLUGINS: list[Plugin] = [
-    Plugin("cs2-instadefuse", "InstadefusePlugin.csproj", "InstadefusePlugin"),
-    Plugin("cs2-instaplant", "InstaplantPlugin.csproj", "InstaplantPlugin"),
     Plugin("cs2-clutch-announce", "ClutchAnnouncePlugin.csproj", "ClutchAnnouncePlugin"),
     Plugin("cs2-retakes", "RetakesPlugin/RetakesPlugin.csproj", "RetakesPlugin"),
     Plugin("cs2-css-inventory-simulator", "InventorySimulator.csproj", "InventorySimulator"),
 ]
 
 DISABLED_NAMES: set[str] = set()
+OBSOLETE_PLUGIN_DIRS: tuple[str, ...] = ("InstadefusePlugin", "InstaplantPlugin")
 ROOT = project_root()
 SRC_ROOT = ROOT / "plugins_source"
 DEST_ROOT = ROOT / "server" / "game" / "csgo" / "addons" / "counterstrikesharp" / "plugins"
@@ -82,6 +81,14 @@ def copy_assets(plugin: Plugin, src: Path, dest: Path) -> None:
         copytree_merge(lang, dest / "lang")
 
 
+def remove_obsolete_plugins() -> None:
+    for plugin_name in OBSOLETE_PLUGIN_DIRS:
+        obsolete_dest = DEST_ROOT / plugin_name
+        if obsolete_dest.is_dir():
+            shutil.rmtree(obsolete_dest)
+            log.info(f"Removed obsolete plugin runtime directory {obsolete_dest}")
+
+
 def dotnet_restore(project_path: Path) -> None:
     if not project_path.is_file():
         return
@@ -123,6 +130,7 @@ def build_plugin(plugin: Plugin) -> bool:
 
 def build_all() -> None:
     require_binary("dotnet", hint="Install .NET 8.0 SDK (see runtime_net_install.py).")
+    remove_obsolete_plugins()
     log.section("Restoring NuGet packages")
     for p in PLUGINS:
         dotnet_restore(SRC_ROOT / p.directory / p.csproj)
@@ -136,6 +144,7 @@ def build_all() -> None:
 
 def watch_plugin(directory: str) -> None:
     require_binary("dotnet")
+    remove_obsolete_plugins()
     for p in PLUGINS:
         if p.directory == directory:
             dest = dest_for(p)
@@ -153,6 +162,7 @@ def watch_plugin(directory: str) -> None:
 
 def build_single(directory: str) -> None:
     require_binary("dotnet")
+    remove_obsolete_plugins()
     for p in PLUGINS:
         if p.directory == directory:
             dotnet_restore(SRC_ROOT / p.directory / p.csproj)

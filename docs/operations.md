@@ -39,8 +39,8 @@ python3 start.py
 Check for these lines in boot logs:
 
 - `CSSharp: CounterStrikeSharp.API Loaded Successfully`
-- `Loading plugin AutojoinPlugin`
-- `Finished loading plugin AutojoinPlugin`
+- `Loading plugin RetakesPlugin`
+- `Finished loading plugin RetakesPlugin`
 
 If they are missing:
 

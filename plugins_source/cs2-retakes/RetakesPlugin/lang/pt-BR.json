@@ -17,5 +17,9 @@
   "retakes.teams.almost_scramble": "Terroristas venceram {green}{0}{default} rodadas consecutivas. - se ganharem mais {green}{1} rodada, {purple}os times serão embaralhados.",
   "retakes.teams.win_streak": "Terroristas venceram {green}{0}{default} rodadas consecutivas!",
   "retakes.teams.win_streak_over": "Contra-Terroristas terminaram uma sequência de {green}{0} rodadas consecutivas{default}!",
-  "retakes.teams.admin_scramble": "{0} definiu para os times serem embaralhados na próxima rodada."
+  "retakes.teams.admin_scramble": "{0} definiu para os times serem embaralhados na próxima rodada.",
+
+  "retakes.instadefuse.not_possible": "Defuse instantâneo não é possível enquanto houver ameaça ativa de granada.",
+  "retakes.instadefuse.successful": "{0} defusou com {green}{1}{default} segundos restantes na bomba.",
+  "retakes.instadefuse.unsuccessful": "{0} estava a {lightred}{1}{default} segundos de defusar."
 }

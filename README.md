@@ -91,7 +91,7 @@ flowchart TD
     D --> E["Metamod loads from game/csgo/addons/metamod"]
     E --> F["CounterStrikeSharp loads from game/csgo/addons/counterstrikesharp"]
     F --> G["Custom plugins load from addons/counterstrikesharp/plugins"]
-    G --> H["AutojoinPlugin"]
+    G --> H["RetakesPlugin"]
 ```
 
 ## Install And Reconcile Design
