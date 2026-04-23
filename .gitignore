@@ -8,3 +8,4 @@ plugins_source/**/bin/
 server
 steamcmd
 __pycache__
+.codex
