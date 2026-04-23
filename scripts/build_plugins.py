@@ -20,13 +20,12 @@ class Plugin:
 
 
 PLUGINS: list[Plugin] = [
-    Plugin("cs2-clutch-announce", "ClutchAnnouncePlugin.csproj", "ClutchAnnouncePlugin"),
     Plugin("cs2-retakes", "RetakesPlugin/RetakesPlugin.csproj", "RetakesPlugin"),
     Plugin("cs2-css-inventory-simulator", "InventorySimulator.csproj", "InventorySimulator"),
 ]
 
 DISABLED_NAMES: set[str] = set()
-OBSOLETE_PLUGIN_DIRS: tuple[str, ...] = ("InstadefusePlugin", "InstaplantPlugin")
+OBSOLETE_PLUGIN_DIRS: tuple[str, ...] = ("InstadefusePlugin", "InstaplantPlugin", "ClutchAnnouncePlugin")
 ROOT = project_root()
 SRC_ROOT = ROOT / "plugins_source"
 DEST_ROOT = ROOT / "server" / "game" / "csgo" / "addons" / "counterstrikesharp" / "plugins"

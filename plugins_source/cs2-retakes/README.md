@@ -39,10 +39,7 @@ If you appreciate the project then please take the time to star the repository ð
 5. Complete the configuration file with the parameters of your choice.
 
 ## Recommendations
-I also recommend installing these plugins for an improved player experience
-- Clutch Announce: https://github.com/B3none/cs2-clutch-announce
-
-Instant defuse and instant plant are now handled inside `RetakesPlugin` itself.
+Instant defuse, instant plant, and clutch announce are now handled inside `RetakesPlugin` itself.
 
 ## Allocators
 Although this plugin comes with it's own weapon allocation system, I would recommend using **one** of the following plugins for a better experience:

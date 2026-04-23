@@ -13,12 +13,15 @@ namespace RetakesPlugin.Events;
 
 public class RoundEventHandlers
 {
+    private const float BombsiteAnnouncementDelaySeconds = 5.0f;
+
     private readonly RetakesPlugin _plugin;
     private readonly GameManager _gameManager;
     private readonly SpawnManager _spawnManager;
     private readonly BreakerManager? _breakerManager;
     private readonly AllocationService _allocationService;
     private readonly BuyService _buyService;
+    private readonly ClutchAnnounceService _clutchAnnounceService;
     private readonly AnnouncementService _announcementService;
     private readonly bool _isAutoPlantEnabled;
     private readonly bool _enableFallbackAllocation;
@@ -31,7 +34,7 @@ public class RoundEventHandlers
     private CsTeam _lastRoundWinner = CsTeam.None;
     private Bombsite? _forcedBombsite;
 
-    public RoundEventHandlers(RetakesPlugin plugin, GameManager gameManager, SpawnManager spawnManager, BreakerManager? breakerManager, AllocationService allocationService, BuyService buyService, AnnouncementService announcementService, bool isAutoPlantEnabled, bool enableFallbackAllocation, bool enableFallbackBombsiteAnnouncement, Random random)
+    public RoundEventHandlers(RetakesPlugin plugin, GameManager gameManager, SpawnManager spawnManager, BreakerManager? breakerManager, AllocationService allocationService, BuyService buyService, ClutchAnnounceService clutchAnnounceService, AnnouncementService announcementService, bool isAutoPlantEnabled, bool enableFallbackAllocation, bool enableFallbackBombsiteAnnouncement, Random random)
     {
         _plugin = plugin;
         _gameManager = gameManager;
@@ -39,6 +42,7 @@ public class RoundEventHandlers
         _breakerManager = breakerManager;
         _allocationService = allocationService;
         _buyService = buyService;
+        _clutchAnnounceService = clutchAnnounceService;
         _announcementService = announcementService;
         _isAutoPlantEnabled = isAutoPlantEnabled;
         _enableFallbackAllocation = enableFallbackAllocation;
@@ -122,6 +126,8 @@ public class RoundEventHandlers
             return HookResult.Continue;
         }
 
+        _clutchAnnounceService.ResetRoundState();
+
         if (_spawnManager == null)
         {
             Logger.LogDebug("Round", "Spawn manager not loaded.");
@@ -137,7 +143,11 @@ public class RoundEventHandlers
 
         if (_enableFallbackBombsiteAnnouncement)
         {
-            _announcementService.AnnounceBombsite(_currentBombsite);
+            var announcedBombsite = _currentBombsite;
+            _plugin.AddTimer(BombsiteAnnouncementDelaySeconds, () =>
+            {
+                _announcementService.AnnounceBombsite(announcedBombsite);
+            });
         }
 
         RetakesPlugin.RetakesPluginEventSenderCapability.Get()?.TriggerEvent(new AnnounceBombsiteEvent(_currentBombsite));
@@ -226,6 +236,8 @@ public class RoundEventHandlers
     public HookResult OnRoundEnd(EventRoundEnd @event, GameEventInfo info)
     {
         _lastRoundWinner = (CsTeam)@event.Winner;
+        _clutchAnnounceService.AnnounceIfClutched(_lastRoundWinner);
+        _clutchAnnounceService.ResetRoundState();
         _plugin.SetCurrentBombsite(null);
         Logger.LogInfo("Round", $"Round ended. Winner: {_lastRoundWinner}");
         return HookResult.Continue;

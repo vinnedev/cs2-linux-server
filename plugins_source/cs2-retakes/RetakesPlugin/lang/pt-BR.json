@@ -21,5 +21,6 @@
 
   "retakes.instadefuse.not_possible": "Defuse instantâneo não é possível enquanto houver ameaça ativa de granada.",
   "retakes.instadefuse.successful": "{0} defusou com {green}{1}{default} segundos restantes na bomba.",
-  "retakes.instadefuse.unsuccessful": "{0} estava a {lightred}{1}{default} segundos de defusar."
+  "retakes.instadefuse.unsuccessful": "{0} estava a {lightred}{1}{default} segundos de defusar.",
+  "retakes.clutch_announce.clutched": "{green}{0}{default} ganhou o {darkred}1v{1}{default}!"
 }

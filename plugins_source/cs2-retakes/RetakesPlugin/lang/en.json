@@ -21,5 +21,6 @@
 
   "retakes.instadefuse.not_possible": "Instant defuse is not possible while there is an active grenade threat.",
   "retakes.instadefuse.successful": "{0} defused with {green}{1}{default} seconds left on the bomb.",
-  "retakes.instadefuse.unsuccessful": "{0} was {lightred}{1}{default} seconds away from defusing."
+  "retakes.instadefuse.unsuccessful": "{0} was {lightred}{1}{default} seconds away from defusing.",
+  "retakes.clutch_announce.clutched": "Player {green}{0}{default} has clutched a 1v{1}!"
 }

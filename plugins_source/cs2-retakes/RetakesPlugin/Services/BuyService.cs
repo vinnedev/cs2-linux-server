@@ -281,12 +281,6 @@ public sealed class BuyService
 
     private void TrySelectWeapon(CCSPlayerController player, WeaponChoice choice, AllocationService? allocationService)
     {
-        if (!_plugin.IsBuyWindowOpen)
-        {
-            player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} Periodo de compra encerrado. Abra o menu no inicio do round.");
-            return;
-        }
-
         _selectedWeapons[player.SteamID] = choice.Item;
         SavePreference(player, choice);
 
@@ -302,11 +296,6 @@ public sealed class BuyService
 
     private void TrySelectAwp(CCSPlayerController player)
     {
-        if (IsAwpAllowedThisRound && !_plugin.IsBuyWindowOpen)
-        {
-            player.PrintToChat($"{_plugin.Localizer["retakes.prefix"]} Periodo de compra encerrado. A AWP segue na fila para o proximo round.");
-        }
-
         _plugin.RequestAwp(player);
     }
 

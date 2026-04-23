@@ -60,6 +60,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     private AutoJoinService? _autoJoinService;
     private BuyService? _buyService;
     private AntiAfkService? _antiAfkService;
+    private ClutchAnnounceService? _clutchAnnounceService;
     private AnnouncementService? _announcementService;
     private ChatMessageService? _chatMessageService;
     private InstantPlantService? _instantPlantService;
@@ -105,7 +106,6 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     private readonly HashSet<ulong> _awpOptInPlayers = [];
     private readonly Dictionary<CsTeam, ulong> _roundAwpOwners = [];
     private bool _buyWindowOpen;
-    private int _buyWindowToken;
     private Bombsite? _currentBombsite;
     #endregion
 
@@ -130,6 +130,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
         AddCommandListener("jointeam", OnCommandJoinTeam);
         AddCommandListener("buy", OnCommandBuy);
         AddCommandListener("buymenu", OnCommandBuyMenu);
+        AddCommandListener("open_buymenu", OnCommandBuyMenu);
         AddCommandListener("autobuy", OnCommandBlockedNativeBuyShortcut);
         AddCommandListener("rebuy", OnCommandBlockedNativeBuyShortcut);
 
@@ -201,6 +202,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
             _instantPlantService = new InstantPlantService(Config.Bomb.IsInstantPlantEnabled, Config.Bomb.IsAutoPlantEnabled);
             _instantDefuseService = new InstantDefuseService(this, _chatMessageService, Config.Bomb.IsInstantDefuseEnabled, Config.Bomb.InstantDefuseThreatRadius);
             _retakeStatusService = new RetakeStatusService(this);
+            _clutchAnnounceService = new ClutchAnnounceService(this, _gameManager!);
 
             _gameManager = new GameManager(
                 this,
@@ -240,6 +242,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
                 _breakerManager,
                 _allocationService,
                 _buyService,
+                _clutchAnnounceService,
                 _announcementService,
                 Config.Bomb.IsAutoPlantEnabled,
                 Config.Game.EnableFallbackAllocation,
@@ -247,7 +250,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
                 _random
             );
 
-            _playerEventHandlers = new PlayerEventHandlers(this, _gameManager, _hasMutedVoices, _autoJoinService, _antiAfkService);
+            _playerEventHandlers = new PlayerEventHandlers(this, _gameManager, _hasMutedVoices, _autoJoinService, _antiAfkService, _clutchAnnounceService);
             _bombEventHandlers = new BombEventHandlers(_instantPlantService, _instantDefuseService);
 
             // Initialize Commands
@@ -506,13 +509,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
             return HookResult.Continue;
         }
 
-        if (_buyWindowOpen)
-        {
-            _buyService?.ShowOptions(player!);
-            return HookResult.Handled;
-        }
-
-        player!.PrintToChat($"{Localizer["retakes.prefix"]} O menu de compra nativo so fica liberado nos primeiros {BuyWindowSeconds:0} segundos do retake.");
+        _buyService?.ShowOptions(player!);
         return HookResult.Handled;
     }
 
@@ -599,8 +596,6 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     public void StartBuyWindow(float durationSeconds)
     {
         _buyWindowOpen = true;
-        _buyWindowToken++;
-        var token = _buyWindowToken;
 
         // Keep the server cvars aligned with the intended retake buy rules.
         // sv_buy_status_override=0 means both teams can buy; 3 would disable buying.
@@ -608,16 +603,6 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
         Server.ExecuteCommand("mp_buy_anywhere 1");
         Server.ExecuteCommand("mp_buy_during_immunity 1");
         Server.ExecuteCommand("sv_buy_status_override 0");
-
-        AddTimer(durationSeconds, () =>
-        {
-            if (token != _buyWindowToken)
-            {
-                return;
-            }
-
-            _buyWindowOpen = false;
-        });
     }
 
     public bool IsBuyWindowOpen => _buyWindowOpen;
@@ -714,13 +699,8 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
             return;
         }
 
-        if (!tryImmediateGrant || !_buyWindowOpen || !PlayerCanGetImmediateAwp(player))
+        if (!tryImmediateGrant || !PlayerCanGetImmediateAwp(player))
         {
-            if (!_buyWindowOpen)
-            {
-                player.PrintToChat($"{Localizer["retakes.prefix"]} AWP entrou na fila, mas a liberacao imediata so vale no periodo de compra.");
-            }
-
             return;
         }
 

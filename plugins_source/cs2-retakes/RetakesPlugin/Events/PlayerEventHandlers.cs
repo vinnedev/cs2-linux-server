@@ -15,14 +15,16 @@ public class PlayerEventHandlers
     private readonly HashSet<CCSPlayerController> _hasMutedVoices;
     private readonly AutoJoinService _autoJoinService;
     private readonly AntiAfkService _antiAfkService;
+    private readonly ClutchAnnounceService _clutchAnnounceService;
 
-    public PlayerEventHandlers(RetakesPlugin plugin, GameManager gameManager, HashSet<CCSPlayerController> hasMutedVoices, AutoJoinService autoJoinService, AntiAfkService antiAfkService)
+    public PlayerEventHandlers(RetakesPlugin plugin, GameManager gameManager, HashSet<CCSPlayerController> hasMutedVoices, AutoJoinService autoJoinService, AntiAfkService antiAfkService, ClutchAnnounceService clutchAnnounceService)
     {
         _plugin = plugin;
         _gameManager = gameManager;
         _hasMutedVoices = hasMutedVoices;
         _autoJoinService = autoJoinService;
         _antiAfkService = antiAfkService;
+        _clutchAnnounceService = clutchAnnounceService;
     }
 
     public HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
@@ -112,6 +114,8 @@ public class PlayerEventHandlers
             _gameManager.AddAssist(assister);
         }
 
+        _clutchAnnounceService.OnPotentialClutchStateChange();
+
         return HookResult.Continue;
     }
 
@@ -133,6 +137,7 @@ public class PlayerEventHandlers
         }
 
         _antiAfkService.OnPlayerDisconnect(player);
+        _clutchAnnounceService.OnPotentialClutchStateChange();
 
         Logger.LogInfo("Player", $"{player.PlayerName} disconnected");
         return HookResult.Continue;
