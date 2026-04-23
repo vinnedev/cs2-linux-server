@@ -18,7 +18,9 @@ public static class PlayerHelper
 
     public static bool IsConnected(CCSPlayerController player)
     {
-        return player.Connected == PlayerConnectedState.PlayerConnected;
+        // CounterStrikeSharp documents the connected state as value 0, but some package builds
+        // do not expose the symbolic enum member consistently at compile time.
+        return (uint)player.Connected == 0;
     }
 
     public static bool HasAlivePawn(CCSPlayerController? player, bool shouldBeAlive = true)

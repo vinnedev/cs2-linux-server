@@ -136,7 +136,7 @@ public partial class InventorySimulator
 
         // 2. If the current view model is displaying it, ensure that it has the correct MeshGroupMask.
         var viewModel = player.GetViewModel();
-        if (viewModel != null && viewModel.Weapon.Value != null && viewModel.Weapon.Value.Index == weapon.Index)
+        if (viewModel != null)
         {
             UpdateWeaponMeshGroupMask(viewModel, isLegacy);
             Utilities.SetStateChanged(viewModel, "CBaseEntity", "m_CBodyComponent");
