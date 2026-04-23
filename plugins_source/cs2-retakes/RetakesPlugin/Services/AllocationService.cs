@@ -13,16 +13,17 @@ public class AllocationService
         _random = random;
     }
 
-    public void AllocatePlayer(CCSPlayerController player)
+    public void AllocatePlayer(CCSPlayerController player, CsItem primaryWeapon, CsItem secondaryWeapon, bool assignAwp)
     {
         AllocateEquipment(player);
-        AllocateWeapons(player);
+        AllocateWeapons(player, primaryWeapon, secondaryWeapon, assignAwp);
         AllocateGrenades(player);
     }
 
     private void AllocateEquipment(CCSPlayerController player)
     {
         player.GiveNamedItem(CsItem.KevlarHelmet);
+        player.GiveNamedItem(CsItem.Taser);
 
         if (
             player.Team == CsTeam.CounterTerrorist
@@ -37,29 +38,18 @@ public class AllocationService
         }
     }
 
-    private void AllocateWeapons(CCSPlayerController player)
+    private void AllocateWeapons(CCSPlayerController player, CsItem primaryWeapon, CsItem secondaryWeapon, bool assignAwp)
     {
-        if (player.Team == CsTeam.Terrorist)
+        if (assignAwp)
         {
-            player.GiveNamedItem(CsItem.AK47);
-            player.GiveNamedItem(CsItem.Deagle);
+            player.GiveNamedItem(CsItem.AWP);
+            player.GiveNamedItem(secondaryWeapon);
+            player.GiveNamedItem(CsItem.Knife);
+            return;
         }
 
-        if (player.Team == CsTeam.CounterTerrorist)
-        {
-            // Easter egg for klippy
-            if (player.PlayerName.Trim() == "klip")
-            {
-                player.GiveNamedItem(CsItem.M4A4);
-            }
-            else
-            {
-                player.GiveNamedItem(CsItem.M4A1S);
-            }
-
-            player.GiveNamedItem(CsItem.Deagle);
-        }
-
+        player.GiveNamedItem(primaryWeapon);
+        player.GiveNamedItem(secondaryWeapon);
         player.GiveNamedItem(CsItem.Knife);
     }
 

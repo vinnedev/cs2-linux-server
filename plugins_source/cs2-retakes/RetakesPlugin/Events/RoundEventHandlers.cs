@@ -18,6 +18,7 @@ public class RoundEventHandlers
     private readonly SpawnManager _spawnManager;
     private readonly BreakerManager? _breakerManager;
     private readonly AllocationService _allocationService;
+    private readonly BuyService _buyService;
     private readonly AnnouncementService _announcementService;
     private readonly bool _isAutoPlantEnabled;
     private readonly bool _enableFallbackAllocation;
@@ -30,13 +31,14 @@ public class RoundEventHandlers
     private CsTeam _lastRoundWinner = CsTeam.None;
     private Bombsite? _forcedBombsite;
 
-    public RoundEventHandlers(RetakesPlugin plugin, GameManager gameManager, SpawnManager spawnManager, BreakerManager? breakerManager, AllocationService allocationService, AnnouncementService announcementService, bool isAutoPlantEnabled, bool enableFallbackAllocation, bool enableFallbackBombsiteAnnouncement, Random random)
+    public RoundEventHandlers(RetakesPlugin plugin, GameManager gameManager, SpawnManager spawnManager, BreakerManager? breakerManager, AllocationService allocationService, BuyService buyService, AnnouncementService announcementService, bool isAutoPlantEnabled, bool enableFallbackAllocation, bool enableFallbackBombsiteAnnouncement, Random random)
     {
         _plugin = plugin;
         _gameManager = gameManager;
         _spawnManager = spawnManager;
         _breakerManager = breakerManager;
         _allocationService = allocationService;
+        _buyService = buyService;
         _announcementService = announcementService;
         _isAutoPlantEnabled = isAutoPlantEnabled;
         _enableFallbackAllocation = enableFallbackAllocation;
@@ -128,6 +130,7 @@ public class RoundEventHandlers
 
         _breakerManager?.Handle();
         _currentBombsite = _forcedBombsite ?? (_random.Next(0, 2) == 0 ? Bombsite.A : Bombsite.B);
+        _plugin.SetCurrentBombsite(_currentBombsite);
         _gameManager.ResetPlayerScores();
 
         _planter = _spawnManager.HandleRoundSpawns(_currentBombsite, _gameManager.QueueManager.ActivePlayers);
@@ -160,6 +163,9 @@ public class RoundEventHandlers
 
         Logger.LogDebug("Round", $"EnableFallbackAllocation: {_enableFallbackAllocation}");
 
+        _buyService.PrepareRound(_gameManager.QueueManager.ActivePlayers);
+        _plugin.PrepareRoundAwpOwners(_gameManager.QueueManager.ActivePlayers);
+
         foreach (var player in _gameManager.QueueManager.ActivePlayers.Where(PlayerHelper.IsValid))
         {
             if (!PlayerHelper.IsValid(player))
@@ -178,7 +184,8 @@ public class RoundEventHandlers
             if (_enableFallbackAllocation)
             {
                 Logger.LogDebug("Round", $"Asignando armas a {player.PlayerName} (fallback allocation habilitado)");
-                _allocationService.AllocatePlayer(player);
+                _buyService.ApplyRoundLoadout(player, _allocationService, _plugin.ShouldReceiveAwpThisRound(player));
+                _buyService.ShowRetakeStatus(player, _currentBombsite);
             }
             else
             {
@@ -218,6 +225,7 @@ public class RoundEventHandlers
     public HookResult OnRoundEnd(EventRoundEnd @event, GameEventInfo info)
     {
         _lastRoundWinner = (CsTeam)@event.Winner;
+        _plugin.SetCurrentBombsite(null);
         Logger.LogInfo("Round", $"Round ended. Winner: {_lastRoundWinner}");
         return HookResult.Continue;
     }
@@ -225,6 +233,8 @@ public class RoundEventHandlers
     public HookResult OnBombPlanted(EventBombPlanted @event, GameEventInfo info)
     {
         Logger.LogInfo("Round", "Bomb planted");
+        _plugin.StartBuyWindow(RetakesPlugin.BuyWindowSeconds);
+        _plugin.ShowRetakeStatusForActivePlayers();
 
         _plugin.AddTimer(4.1f, () =>
         {

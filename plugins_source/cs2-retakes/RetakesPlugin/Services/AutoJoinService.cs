@@ -1,125 +1,102 @@
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Modules.Utils;
-using Microsoft.Extensions.Logging;
 
-namespace AutojoinPlugin;
+namespace RetakesPlugin.Services;
 
-public class AutojoinPlugin : BasePlugin
+public class AutoJoinService
 {
-    public override string ModuleName => "AutojoinPlugin";
-    public override string ModuleVersion => "1.2.2";
-
     private const int MaxAutoJoinAttempts = 8;
-    private const float AutoJoinRetryDelaySeconds = 1.0f;
+    private const float RetryDelaySeconds = 1.0f;
 
+    private readonly RetakesPlugin _plugin;
     private readonly HashSet<ulong> _welcomedPlayers = [];
     private readonly HashSet<ulong> _pendingAutoJoin = [];
     private readonly Dictionary<ulong, int> _autoJoinAttempts = [];
 
-    public override void Load(bool hotReload)
+    public AutoJoinService(RetakesPlugin plugin)
     {
-        RegisterEventHandler<EventPlayerConnectFull>(OnPlayerConnectFull);
-        RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
-        RegisterEventHandler<EventPlayerTeam>(OnPlayerTeam);
-        RegisterEventHandler<EventPlayerDisconnect>(OnPlayerDisconnect);
-        RegisterListener<Listeners.OnMapStart>(OnMapStart);
-
-        Logger.LogInformation("[AutojoinPlugin] Loaded");
-        Server.PrintToConsole("[AutojoinPlugin] Loaded");
+        _plugin = plugin;
     }
 
-    private void OnMapStart(string mapName)
+    public void OnMapStart()
     {
         _pendingAutoJoin.Clear();
         _autoJoinAttempts.Clear();
-        Server.PrintToConsole($"[AutojoinPlugin] Map started: {mapName}");
+        _welcomedPlayers.Clear();
+        ScheduleBotReconcile(1.0f);
     }
 
-    private HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
+    public void OnPlayerConnectFull(CCSPlayerController player)
     {
-        var player = @event.Userid;
-        if (!ShouldHandle(player))
-            return HookResult.Continue;
-
-        // Wait a little longer so Retakes finishes its own connect/setup flow first.
-        ScheduleAutoJoin(player!, 3.5f);
-        return HookResult.Continue;
+        // Give Retakes connect flow time to finish before requesting join.
+        ScheduleAutoJoin(player, 3.0f);
     }
 
-    private HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
+    public void OnPlayerSpawn(CCSPlayerController player)
     {
-        var player = @event.Userid;
-        if (!ShouldHandle(player))
-            return HookResult.Continue;
-
-        if (player!.Team is CsTeam.Spectator or CsTeam.None)
-        {
-            ScheduleAutoJoin(player, 1.0f);
-        }
-
         if (_welcomedPlayers.Add(player.SteamID))
         {
             player.PrintToChat("\x04[ABREU] \x01Bem vindo ao servidor!");
             player.PrintToChat($"\x01Ola, \x03{player.PlayerName}\x01! Personalize suas armas com \x02!ws\x01.");
         }
 
-        return HookResult.Continue;
+        if (player.Team is CsTeam.Spectator or CsTeam.None)
+        {
+            ScheduleAutoJoin(player, 1.0f);
+        }
     }
 
-    private HookResult OnPlayerTeam(EventPlayerTeam @event, GameEventInfo info)
+    public void OnPlayerTeam(CCSPlayerController player, CsTeam toTeam)
     {
-        var player = @event.Userid;
-        if (!ShouldHandle(player))
-            return HookResult.Continue;
-
-        if ((CsTeam)@event.Team is CsTeam.Spectator or CsTeam.None)
+        if (toTeam is CsTeam.Spectator or CsTeam.None)
         {
-            ScheduleAutoJoin(player!, 1.0f);
-            return HookResult.Continue;
+            ScheduleAutoJoin(player, 1.0f);
+            return;
         }
 
-        if ((CsTeam)@event.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist)
+        if (toTeam is CsTeam.Terrorist or CsTeam.CounterTerrorist)
         {
-            // Reconcile bots only after the player is really in an active team.
+            _autoJoinAttempts.Remove(player.SteamID);
             ScheduleBotReconcile(2.5f);
         }
-
-        return HookResult.Continue;
     }
 
-    private HookResult OnPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
+    public void OnPlayerDisconnect(CCSPlayerController player)
     {
-        var player = @event.Userid;
-        if (player != null)
-        {
-            _pendingAutoJoin.Remove(player.SteamID);
-            _autoJoinAttempts.Remove(player.SteamID);
-        }
-
+        _pendingAutoJoin.Remove(player.SteamID);
+        _autoJoinAttempts.Remove(player.SteamID);
+        _welcomedPlayers.Remove(player.SteamID);
         ScheduleBotReconcile(1.0f);
-        return HookResult.Continue;
     }
 
     private void ScheduleAutoJoin(CCSPlayerController player, float delaySeconds)
     {
+        if (!ShouldHandle(player))
+        {
+            return;
+        }
+
         if (!_autoJoinAttempts.ContainsKey(player.SteamID))
         {
             _autoJoinAttempts[player.SteamID] = 0;
         }
 
         if (_pendingAutoJoin.Contains(player.SteamID))
+        {
             return;
+        }
 
         _pendingAutoJoin.Add(player.SteamID);
 
-        AddTimer(delaySeconds, () =>
+        _plugin.AddTimer(delaySeconds, () =>
         {
             _pendingAutoJoin.Remove(player.SteamID);
 
             if (!ShouldHandle(player))
+            {
                 return;
+            }
 
             if (player.Team is not (CsTeam.Spectator or CsTeam.None))
             {
@@ -130,19 +107,14 @@ public class AutojoinPlugin : BasePlugin
             var attempts = _autoJoinAttempts[player.SteamID] + 1;
             _autoJoinAttempts[player.SteamID] = attempts;
 
-            var targetTeam = GetSmallerTeam();
-
-            // Use the client's command path so Retakes can process its team/queue logic.
-            player.ExecuteClientCommand($"jointeam {(int)targetTeam}");
-            Logger.LogInformation("[AutojoinPlugin] Requested jointeam {Team} for {Player} (attempt {Attempt}/{MaxAttempts})", targetTeam, player.PlayerName, attempts, MaxAutoJoinAttempts);
+            player.ExecuteClientCommand($"jointeam {(int)GetSmallerTeam()}");
 
             if (attempts < MaxAutoJoinAttempts)
             {
-                ScheduleAutoJoin(player, AutoJoinRetryDelaySeconds);
+                ScheduleAutoJoin(player, RetryDelaySeconds);
             }
             else
             {
-                Logger.LogWarning("[AutojoinPlugin] Failed to move {Player} out of spectator after {MaxAttempts} attempts", player.PlayerName, MaxAutoJoinAttempts);
                 _autoJoinAttempts.Remove(player.SteamID);
             }
         });
@@ -150,10 +122,10 @@ public class AutojoinPlugin : BasePlugin
 
     private void ScheduleBotReconcile(float delaySeconds)
     {
-        AddTimer(delaySeconds, ReconcileBots);
+        _plugin.AddTimer(delaySeconds, ReconcileBots);
     }
 
-    private void ReconcileBots()
+    private static void ReconcileBots()
     {
         var humans = Utilities.GetPlayers()
             .Where(p => p.IsValid && !p.IsBot && !p.IsHLTV && (p.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist))
@@ -169,6 +141,7 @@ public class AutojoinPlugin : BasePlugin
             {
                 Server.ExecuteCommand("bot_kick");
             }
+
             return;
         }
 
@@ -206,7 +179,10 @@ public class AutojoinPlugin : BasePlugin
 
     private static CsTeam GetSmallerTeam()
     {
-        var players = Utilities.GetPlayers().Where(p => p.IsValid && !p.IsBot && !p.IsHLTV).ToList();
+        var players = Utilities.GetPlayers()
+            .Where(p => p.IsValid && !p.IsBot && !p.IsHLTV)
+            .ToList();
+
         var ctCount = players.Count(p => p.Team == CsTeam.CounterTerrorist);
         var tCount = players.Count(p => p.Team == CsTeam.Terrorist);
         return tCount <= ctCount ? CsTeam.Terrorist : CsTeam.CounterTerrorist;

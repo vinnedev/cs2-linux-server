@@ -3,7 +3,10 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Capabilities;
 using CounterStrikeSharp.API.Modules.Commands;
+using CounterStrikeSharp.API.Modules.Entities.Constants;
+using CounterStrikeSharp.API.Modules.Utils;
 using RetakesPluginShared;
+using RetakesPluginShared.Enums;
 using System.Text.Json;
 
 using RetakesPlugin.Configs;
@@ -25,6 +28,7 @@ namespace RetakesPlugin;
 public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 {
     public const string Version = "3.0.4";
+    public const float BuyWindowSeconds = 10.0f;
 
     #region Plugin Info
     public override string ModuleName => "Retakes Plugin";
@@ -52,12 +56,16 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     private BreakerManager? _breakerManager;
     private MapConfigService? _mapConfigService;
     private AllocationService? _allocationService;
+    private AutoJoinService? _autoJoinService;
+    private BuyService? _buyService;
+    private AntiAfkService? _antiAfkService;
     private AnnouncementService? _announcementService;
     private RoundEventHandlers? _roundEventHandlers;
     private PlayerEventHandlers? _playerEventHandlers;
 
     public MapConfigService? MapConfigService => _mapConfigService;
     public SpawnManager? SpawnManager => _spawnManager;
+    public GameManager? GameManager => _gameManager;
     #endregion
 
     #region Commands
@@ -88,6 +96,11 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 
     #region State
     private readonly HashSet<CCSPlayerController> _hasMutedVoices = [];
+    private readonly HashSet<ulong> _awpOptInPlayers = [];
+    private readonly Dictionary<CsTeam, ulong> _roundAwpOwners = [];
+    private bool _buyWindowOpen;
+    private int _buyWindowToken;
+    private Bombsite? _currentBombsite;
     #endregion
 
     public RetakesPlugin()
@@ -109,6 +122,8 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 
         RegisterListener<Listeners.OnMapStart>(OnMapStart);
         AddCommandListener("jointeam", OnCommandJoinTeam);
+        AddCommandListener("buy", OnCommandBuy);
+        AddCommandListener("buymenu", OnCommandBuyMenu);
 
         var retakesPluginEventSender = new RetakesPluginEventSender();
         Capabilities.RegisterPluginCapability(RetakesPluginEventSenderCapability, () => retakesPluginEventSender);
@@ -142,6 +157,10 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
         Utils.Logger.LogInfo("MapStart", $"Map started: {mapName}");
 
         SpawnService.Reset();
+        _autoJoinService?.OnMapStart();
+        _buyService?.OnMapStart();
+        _antiAfkService?.OnMapStart();
+        _currentBombsite = null;
 
         AddTimer(1.0f, ServerHelper.ExecuteRetakesConfiguration);
 
@@ -159,6 +178,9 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
             // Initialize Managers
             _spawnManager = new SpawnManager(_mapConfigService);
             _allocationService = new AllocationService(_random);
+            _autoJoinService = new AutoJoinService(this);
+            _buyService = new BuyService(this, _random);
+            _antiAfkService = new AntiAfkService(this);
 
             _gameManager = new GameManager(
                 this,
@@ -197,6 +219,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
                 _spawnManager,
                 _breakerManager,
                 _allocationService,
+                _buyService,
                 _announcementService,
                 Config.Bomb.IsAutoPlantEnabled,
                 Config.Game.EnableFallbackAllocation,
@@ -204,7 +227,7 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
                 _random
             );
 
-            _playerEventHandlers = new PlayerEventHandlers(this, _gameManager, _hasMutedVoices);
+            _playerEventHandlers = new PlayerEventHandlers(this, _gameManager, _hasMutedVoices, _autoJoinService, _antiAfkService);
 
             // Initialize Commands
             _forceBombsiteCommand = new ForceBombsiteCommand(this, _roundEventHandlers);
@@ -283,6 +306,18 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 
         // Player Commands
         AddCommand("css_voices", "Toggles whether or not you want to hear bombsite voice announcements.", _voicesCommand.OnCommand);
+        AddCommand("css_awp", "Toggle AWP queue participation.", OnCommandAwp);
+        AddCommand("css_a", "Shows the allowed weapons for the current retake round.", OnCommandBuyAlias);
+        AddCommand("css_w", "Buys a weapon from the current retake pool.", OnCommandBuyAlias);
+        AddCommand("css_1", "Retake buy menu option 1.", OnCommandBuyAlias);
+        AddCommand("css_2", "Retake buy menu option 2.", OnCommandBuyAlias);
+        AddCommand("css_3", "Retake buy menu option 3.", OnCommandBuyAlias);
+        AddCommand("css_4", "Retake buy menu option 4.", OnCommandBuyAlias);
+        AddCommand("css_5", "Retake buy menu option 5.", OnCommandBuyAlias);
+        AddCommand("css_6", "Retake buy menu option 6.", OnCommandBuyAlias);
+        AddCommand("css_7", "Retake buy menu option 7.", OnCommandBuyAlias);
+        AddCommand("css_8", "Retake buy menu option 8.", OnCommandBuyAlias);
+        AddCommand("css_9", "Retake buy menu option 9.", OnCommandBuyAlias);
 
         Utils.Logger.LogInfo("Commands", "All commands registered successfully");
     }
@@ -341,6 +376,11 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 
     private HookResult OnPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
     {
+        if (PlayerHelper.IsValid(@event.Userid))
+        {
+            RemoveAwpState(@event.Userid!);
+        }
+
         return _playerEventHandlers?.OnPlayerDisconnect(@event, info) ?? HookResult.Continue;
     }
 
@@ -351,6 +391,49 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     #endregion
 
     #region Command Handlers
+    private void OnCommandAwp(CCSPlayerController? player, CommandInfo commandInfo)
+    {
+        if (!PlayerHelper.IsValid(player))
+        {
+            return;
+        }
+
+        ToggleAwpOptIn(player!, true);
+    }
+
+    private void OnCommandBuyAlias(CCSPlayerController? player, CommandInfo commandInfo)
+    {
+        _buyService?.TryHandleBuyCommand(
+            player,
+            commandInfo.ArgCount >= 2
+                ? commandInfo.GetArg(1)
+                : commandInfo.GetArg(0).Replace("!", string.Empty).Replace("css_", string.Empty),
+            _allocationService
+        );
+    }
+
+    private HookResult OnCommandBuy(CCSPlayerController? player, CommandInfo commandInfo)
+    {
+        if (!PlayerHelper.IsValid(player))
+        {
+            return HookResult.Handled;
+        }
+
+        player!.PrintToChat($"{Localizer["retakes.prefix"]} Compra nativa desativada. Use !a para ver as armas ou !w <arma> para equipar.");
+        return HookResult.Handled;
+    }
+
+    private HookResult OnCommandBuyMenu(CCSPlayerController? player, CommandInfo commandInfo)
+    {
+        if (!PlayerHelper.IsValid(player))
+        {
+            return HookResult.Continue;
+        }
+
+        player!.PrintToChat($"{Localizer["retakes.prefix"]} Menu de compra nativo desativado. Use !a ou !w.");
+        return HookResult.Handled;
+    }
+
     private HookResult OnCommandJoinTeam(CCSPlayerController? player, CommandInfo commandInfo)
     {
         if (_gameManager == null)
@@ -388,5 +471,174 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     {
         Utils.Logger.LogInfo("Main", "Plugin unloading...");
         base.Unload(hotReload);
+    }
+
+    public void PrepareRoundAwpOwners(IEnumerable<CCSPlayerController> activePlayers)
+    {
+        _roundAwpOwners.Clear();
+
+        var validActivePlayers = activePlayers
+            .Where(PlayerHelper.IsValid)
+            .Where(p => p.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist)
+            .ToList();
+
+        foreach (var team in new[] { CsTeam.Terrorist, CsTeam.CounterTerrorist })
+        {
+            var candidates = validActivePlayers
+                .Where(p => p.Team == team && _awpOptInPlayers.Contains(p.SteamID))
+                .ToList();
+
+            if (candidates.Count == 0)
+            {
+                continue;
+            }
+
+            var selected = candidates[_random.Next(candidates.Count)];
+            _roundAwpOwners[team] = selected.SteamID;
+            selected.PrintToChat($"{Localizer["retakes.prefix"]} AWP liberada para voce neste round.");
+        }
+    }
+
+    public void StartBuyWindow(float durationSeconds)
+    {
+        _buyWindowOpen = true;
+        _buyWindowToken++;
+        var token = _buyWindowToken;
+
+        // Retakes starts with the bomb already planted, so force the server buy
+        // status open during the configured window instead of relying on vanilla timing.
+        Server.ExecuteCommand("sv_buy_status_override 3");
+
+        AddTimer(durationSeconds, () =>
+        {
+            if (token != _buyWindowToken)
+            {
+                return;
+            }
+
+            _buyWindowOpen = false;
+            Server.ExecuteCommand("sv_buy_status_override 0");
+        });
+    }
+
+    public bool IsBuyWindowOpen => _buyWindowOpen;
+
+    public void RequestAwp(CCSPlayerController player)
+    {
+        ToggleAwpOptIn(player, true);
+    }
+
+    public void SetCurrentBombsite(Bombsite? bombsite)
+    {
+        _currentBombsite = bombsite;
+    }
+
+    public void ShowRetakeStatus(CCSPlayerController player)
+    {
+        if (_currentBombsite == null || _buyService == null)
+        {
+            return;
+        }
+
+        _buyService.ShowRetakeStatus(player, _currentBombsite.Value);
+    }
+
+    public void ShowRetakeStatusForActivePlayers()
+    {
+        if (_currentBombsite == null || _buyService == null || _gameManager == null)
+        {
+            return;
+        }
+
+        foreach (var player in _gameManager.QueueManager.ActivePlayers.Where(PlayerHelper.IsValid))
+        {
+            _buyService.ShowRetakeStatus(player, _currentBombsite.Value);
+        }
+    }
+
+    public bool ShouldReceiveAwpThisRound(CCSPlayerController player)
+    {
+        if (!PlayerHelper.IsValid(player) || player.Team is not (CsTeam.Terrorist or CsTeam.CounterTerrorist))
+        {
+            return false;
+        }
+
+        return _roundAwpOwners.TryGetValue(player.Team, out var ownerSteamId) && ownerSteamId == player.SteamID;
+    }
+
+    public void RemoveAwpState(CCSPlayerController player)
+    {
+        _awpOptInPlayers.Remove(player.SteamID);
+
+        if (_roundAwpOwners.TryGetValue(player.Team, out var ownerSteamId) && ownerSteamId == player.SteamID)
+        {
+            _roundAwpOwners.Remove(player.Team);
+        }
+    }
+
+    private void ToggleAwpOptIn(CCSPlayerController player, bool tryImmediateGrant)
+    {
+        if (!PlayerHelper.IsValid(player) || player.Team is not (CsTeam.Terrorist or CsTeam.CounterTerrorist))
+        {
+            return;
+        }
+
+        if (_awpOptInPlayers.Contains(player.SteamID))
+        {
+            _awpOptInPlayers.Remove(player.SteamID);
+
+            if (_roundAwpOwners.TryGetValue(player.Team, out var ownerSteamId) && ownerSteamId == player.SteamID)
+            {
+                _roundAwpOwners.Remove(player.Team);
+            }
+
+            player.PrintToChat($"{Localizer["retakes.prefix"]} AWP desativada para voce.");
+            return;
+        }
+
+        _awpOptInPlayers.Add(player.SteamID);
+        player.PrintToChat($"{Localizer["retakes.prefix"]} AWP ativada para voce.");
+
+        if (!tryImmediateGrant || !_buyWindowOpen || !PlayerCanGetImmediateAwp(player))
+        {
+            if (!_buyWindowOpen)
+            {
+                player.PrintToChat($"{Localizer["retakes.prefix"]} AWP entrou na fila, mas a liberacao imediata so vale no periodo de compra.");
+            }
+
+            return;
+        }
+
+        _roundAwpOwners[player.Team] = player.SteamID;
+        player.GiveNamedItem(CsItem.AWP);
+        player.PrintToChat($"{Localizer["retakes.prefix"]} AWP liberada agora para voce.");
+    }
+
+    private bool PlayerCanGetImmediateAwp(CCSPlayerController player)
+    {
+        if (_gameManager == null)
+        {
+            return false;
+        }
+
+        if (!_gameManager.QueueManager.ActivePlayers.Contains(player))
+        {
+            return false;
+        }
+
+        if (_roundAwpOwners.TryGetValue(player.Team, out var ownerSteamId))
+        {
+            var ownerStillActive = _gameManager.QueueManager.ActivePlayers
+                .Any(p => PlayerHelper.IsValid(p) && p.SteamID == ownerSteamId && p.Team == player.Team);
+
+            if (ownerStillActive)
+            {
+                return false;
+            }
+
+            _roundAwpOwners.Remove(player.Team);
+        }
+
+        return true;
     }
 }

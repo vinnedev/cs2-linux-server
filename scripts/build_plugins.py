@@ -20,7 +20,6 @@ class Plugin:
 
 
 PLUGINS: list[Plugin] = [
-    Plugin("cs2-autojoin", "AutojoinPlugin.csproj", "AutojoinPlugin"),
     Plugin("cs2-instadefuse", "InstadefusePlugin.csproj", "InstadefusePlugin"),
     Plugin("cs2-instaplant", "InstaplantPlugin.csproj", "InstaplantPlugin"),
     Plugin("cs2-clutch-announce", "ClutchAnnouncePlugin.csproj", "ClutchAnnouncePlugin"),

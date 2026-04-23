@@ -3,6 +3,7 @@ using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Utils;
 
 using RetakesPlugin.Managers;
+using RetakesPlugin.Services;
 using RetakesPlugin.Utils;
 
 namespace RetakesPlugin.Events;
@@ -12,12 +13,16 @@ public class PlayerEventHandlers
     private readonly RetakesPlugin _plugin;
     private readonly GameManager _gameManager;
     private readonly HashSet<CCSPlayerController> _hasMutedVoices;
+    private readonly AutoJoinService _autoJoinService;
+    private readonly AntiAfkService _antiAfkService;
 
-    public PlayerEventHandlers(RetakesPlugin plugin, GameManager gameManager, HashSet<CCSPlayerController> hasMutedVoices)
+    public PlayerEventHandlers(RetakesPlugin plugin, GameManager gameManager, HashSet<CCSPlayerController> hasMutedVoices, AutoJoinService autoJoinService, AntiAfkService antiAfkService)
     {
         _plugin = plugin;
         _gameManager = gameManager;
         _hasMutedVoices = hasMutedVoices;
+        _autoJoinService = autoJoinService;
+        _antiAfkService = antiAfkService;
     }
 
     public HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
@@ -30,19 +35,11 @@ public class PlayerEventHandlers
         }
 
         player.ForceTeamTime = 3600.0f;
+        player.ExecuteClientCommand("snd_tensecondwarning_volume 0");
 
-        if(_plugin.Config.Queue.ShouldAutoJoinSpectators)
+        if (_plugin.Config.Queue.ShouldAutoJoinSpectators)
         {
-            _plugin.AddTimer(1.0f, () =>
-            {
-                if (!PlayerHelper.IsValid(player))
-                {
-                    return;
-                }
-
-                player.ChangeTeam(CsTeam.Spectator);
-                player.ExecuteClientCommand("teammenu");
-            });
+            _autoJoinService.OnPlayerConnectFull(player);
         }
 
         // Grant VIP to contributors
@@ -69,6 +66,13 @@ public class PlayerEventHandlers
 
         Logger.LogDebug("Player", $"[{player.PlayerName}] Spawned");
 
+        if (_plugin.Config.Queue.ShouldAutoJoinSpectators)
+        {
+            _autoJoinService.OnPlayerSpawn(player);
+        }
+
+        _antiAfkService.OnPlayerSpawn(player);
+
         if (!_gameManager.QueueManager.ActivePlayers.Contains(player))
         {
             if (player.PlayerPawn.Value != null && player.PlayerPawn.IsValid && player.PlayerPawn.Value.IsValid)
@@ -89,6 +93,7 @@ public class PlayerEventHandlers
             return HookResult.Continue;
         }
 
+        _plugin.ShowRetakeStatus(player);
         return HookResult.Continue;
     }
 
@@ -122,12 +127,24 @@ public class PlayerEventHandlers
         _gameManager.QueueManager.RemovePlayerFromQueues(player);
         _hasMutedVoices.Remove(player);
 
+        if (_plugin.Config.Queue.ShouldAutoJoinSpectators)
+        {
+            _autoJoinService.OnPlayerDisconnect(player);
+        }
+
+        _antiAfkService.OnPlayerDisconnect(player);
+
         Logger.LogInfo("Player", $"{player.PlayerName} disconnected");
         return HookResult.Continue;
     }
 
     public HookResult OnPlayerTeam(EventPlayerTeam @event, GameEventInfo info)
     {
+        if (_plugin.Config.Queue.ShouldAutoJoinSpectators && PlayerHelper.IsValid(@event.Userid))
+        {
+            _autoJoinService.OnPlayerTeam(@event.Userid!, (CsTeam)@event.Team);
+        }
+
         @event.Silent = true;
         return _gameManager.RemoveSpectators(@event, _hasMutedVoices);
     }
