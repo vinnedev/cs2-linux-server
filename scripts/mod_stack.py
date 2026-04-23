@@ -10,6 +10,38 @@ from _common import ensure_dir, fail, log, project_root, run, which
 ROOT = project_root()
 STACK_ROOT = ROOT / "stack" / "vanilla"
 STACK_ADDONS = STACK_ROOT / "addons"
+EXPECTED_STACK_FILES = [
+    "metamod.vdf",
+    "metamod_x64.vdf",
+    "metamod/counterstrikesharp.vdf",
+    "metamod/bin/linuxsteamrt64/metamod.2.cs2.so",
+    "counterstrikesharp/bin/linuxsteamrt64/counterstrikesharp.so",
+    "counterstrikesharp/dotnet/dotnet",
+    "counterstrikesharp/api/CounterStrikeSharp.API.runtimeconfig.json",
+]
+METAMOD_VDF = '"Plugin"\n{\n\t"file"\t"addons/metamod/bin/server"\n}\n'
+METAMOD_X64_VDF = '"Plugin"\n{\n\t"file"\t"addons/metamod/bin/linux64/server"\n}\n'
+CSS_VDF = (
+    '"Metamod Plugin"\n'
+    "{\n"
+    '\t"alias"\t"counterstrikesharp"\n'
+    '\t"file"\t"addons/counterstrikesharp/bin/linuxsteamrt64/counterstrikesharp"\n'
+    "}\n"
+)
+METAPLUGINS_INI = (
+    ";If your plugin came with a .vdf file, you do not need to use this file.\n"
+    ";\n"
+    ";List one plugin per line.  Each line should contain the path to the plugin's binary.\n"
+    ";Any line starting with a ';' character is a comment line, and is ignored.\n"
+    ";\n"
+    ";You do not need to include the _i486.so or .dll part of the file name.  Example:\n"
+    "; addons/sourcemod/bin/sourcemod_mm\n"
+    ";You may also put an alias in front of the file, for example:\n"
+    "; sm addons/sourcemod/bin/sourcemod_mm\n"
+    ';Will allow you to use "meta load sm" from the console.\n'
+    ";\n"
+    ";********* LIST PLUGINS BELOW ***********\n"
+)
 
 
 def patch_gameinfo(gameinfo: Path) -> None:
@@ -35,14 +67,41 @@ def patch_gameinfo(gameinfo: Path) -> None:
     fail(f"Could not find SearchPaths insertion point in {gameinfo}")
 
 
-def apply_local_stack(csgo_dir: Path) -> None:
+def validate_local_stack_source() -> None:
     if not STACK_ADDONS.is_dir():
         fail(f"Local vanilla stack not found at {STACK_ADDONS}")
 
+    missing = [rel for rel in EXPECTED_STACK_FILES if not (STACK_ADDONS / rel).exists()]
+    if missing:
+        fail(
+            "Local vanilla stack is incomplete. Missing files:\n"
+            + "\n".join(f"- {path}" for path in missing)
+        )
+
+
+def apply_local_stack(csgo_dir: Path) -> None:
+    validate_local_stack_source()
     ensure_dir(csgo_dir / "addons")
     run(["cp", "-a", f"{STACK_ADDONS}/.", str(csgo_dir / "addons")])
+    normalize_runtime_stack(csgo_dir)
     fix_exec_bits(csgo_dir)
+    validate_runtime_stack(csgo_dir)
     log.ok("Applied local Metamod + CounterStrikeSharp stack")
+
+
+def write_if_different(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.read_text() == content:
+        return
+    path.write_text(content)
+
+
+def normalize_runtime_stack(csgo_dir: Path) -> None:
+    addons = csgo_dir / "addons"
+    write_if_different(addons / "metamod.vdf", METAMOD_VDF)
+    write_if_different(addons / "metamod_x64.vdf", METAMOD_X64_VDF)
+    write_if_different(addons / "metamod" / "counterstrikesharp.vdf", CSS_VDF)
+    write_if_different(addons / "metamod" / "metaplugins.ini", METAPLUGINS_INI)
 
 
 def fix_exec_bits(csgo_dir: Path) -> None:
@@ -59,6 +118,29 @@ def fix_exec_bits(csgo_dir: Path) -> None:
 
     for path in (csgo_dir / "addons" / "metamod").rglob("*.so"):
         path.chmod(0o755)
+
+
+def validate_runtime_stack(csgo_dir: Path) -> None:
+    addons = csgo_dir / "addons"
+    missing = [rel for rel in EXPECTED_STACK_FILES if not (addons / rel).exists()]
+    if missing:
+        fail(
+            "Runtime Metamod/CounterStrikeSharp stack is incomplete after apply_local_stack(). Missing files:\n"
+            + "\n".join(f"- {path}" for path in missing)
+        )
+
+    css_vdf = addons / "metamod" / "counterstrikesharp.vdf"
+    if css_vdf.read_text() != CSS_VDF:
+        fail(f"Unexpected CounterStrikeSharp VDF contents at {css_vdf}")
+
+    game_bin = csgo_dir.parent / "bin" / "linuxsteamrt64"
+    required_game_libs = ["libtier0.so", "libengine2.so"]
+    missing_libs = [name for name in required_game_libs if not (game_bin / name).exists()]
+    if missing_libs:
+        fail(
+            "Required CS2 Linux runtime libraries are missing:\n"
+            + "\n".join(f"- {name}" for name in missing_libs)
+        )
 
 
 def ensure_exec_cfg(csgo_dir: Path, exec_name: str) -> None:
