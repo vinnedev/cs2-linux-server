@@ -24,7 +24,7 @@ namespace RetakesPlugin;
 [MinimumApiVersion(345)]
 public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
 {
-    public const string Version = "3.0.3";
+    public const string Version = "3.0.4";
 
     #region Plugin Info
     public override string ModuleName => "Retakes Plugin";
@@ -53,11 +53,8 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     private MapConfigService? _mapConfigService;
     private AllocationService? _allocationService;
     private AnnouncementService? _announcementService;
-    private SoloBotService? _soloBotService;
-    private PlayerAccountStore? _playerAccountStore;
     private RoundEventHandlers? _roundEventHandlers;
     private PlayerEventHandlers? _playerEventHandlers;
-    private bool _hasCheckedPlayerAccountStore;
 
     public MapConfigService? MapConfigService => _mapConfigService;
     public SpawnManager? SpawnManager => _spawnManager;
@@ -144,12 +141,9 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
     {
         Utils.Logger.LogInfo("MapStart", $"Map started: {mapName}");
 
-        SpawnService.ClearAllSpawnModels();
+        SpawnService.Reset();
 
-        AddTimer(1.0f, () =>
-        {
-            ServerHelper.ExecuteRetakesConfiguration(ModuleDirectory);
-        });
+        AddTimer(1.0f, ServerHelper.ExecuteRetakesConfiguration);
 
         InitializeServices(mapName);
     }
@@ -196,13 +190,6 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
                 Config.MapConfig.EnableBombsiteAnnouncementCenter
             );
 
-            _soloBotService = new SoloBotService();
-            if (!_hasCheckedPlayerAccountStore)
-            {
-                _playerAccountStore = PlayerAccountStore.TryCreate();
-                _hasCheckedPlayerAccountStore = true;
-            }
-
             // Initialize Event Handlers
             _roundEventHandlers = new RoundEventHandlers(
                 this,
@@ -211,14 +198,13 @@ public class RetakesPlugin : BasePlugin, IPluginConfig<BaseConfigs>
                 _breakerManager,
                 _allocationService,
                 _announcementService,
-                _soloBotService,
                 Config.Bomb.IsAutoPlantEnabled,
                 Config.Game.EnableFallbackAllocation,
                 Config.MapConfig.EnableFallbackBombsiteAnnouncement,
                 _random
             );
 
-            _playerEventHandlers = new PlayerEventHandlers(this, _gameManager, _hasMutedVoices, _playerAccountStore, _soloBotService);
+            _playerEventHandlers = new PlayerEventHandlers(this, _gameManager, _hasMutedVoices);
 
             // Initialize Commands
             _forceBombsiteCommand = new ForceBombsiteCommand(this, _roundEventHandlers);

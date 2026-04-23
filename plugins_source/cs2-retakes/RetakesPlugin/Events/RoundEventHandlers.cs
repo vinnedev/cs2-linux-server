@@ -19,7 +19,6 @@ public class RoundEventHandlers
     private readonly BreakerManager? _breakerManager;
     private readonly AllocationService _allocationService;
     private readonly AnnouncementService _announcementService;
-    private readonly SoloBotService? _soloBotService;
     private readonly bool _isAutoPlantEnabled;
     private readonly bool _enableFallbackAllocation;
     private readonly bool _enableFallbackBombsiteAnnouncement;
@@ -31,7 +30,7 @@ public class RoundEventHandlers
     private CsTeam _lastRoundWinner = CsTeam.None;
     private Bombsite? _forcedBombsite;
 
-    public RoundEventHandlers(RetakesPlugin plugin, GameManager gameManager, SpawnManager spawnManager, BreakerManager? breakerManager, AllocationService allocationService, AnnouncementService announcementService, SoloBotService? soloBotService, bool isAutoPlantEnabled, bool enableFallbackAllocation, bool enableFallbackBombsiteAnnouncement, Random random)
+    public RoundEventHandlers(RetakesPlugin plugin, GameManager gameManager, SpawnManager spawnManager, BreakerManager? breakerManager, AllocationService allocationService, AnnouncementService announcementService, bool isAutoPlantEnabled, bool enableFallbackAllocation, bool enableFallbackBombsiteAnnouncement, Random random)
     {
         _plugin = plugin;
         _gameManager = gameManager;
@@ -39,12 +38,11 @@ public class RoundEventHandlers
         _breakerManager = breakerManager;
         _allocationService = allocationService;
         _announcementService = announcementService;
-        _soloBotService = soloBotService;
         _isAutoPlantEnabled = isAutoPlantEnabled;
         _enableFallbackAllocation = enableFallbackAllocation;
         _enableFallbackBombsiteAnnouncement = enableFallbackBombsiteAnnouncement;
         _random = random;
-        
+
         Logger.LogInfo("RoundEventHandlers", $"EnableFallbackAllocation inicializado a: {_enableFallbackAllocation}");
     }
 
@@ -109,7 +107,7 @@ public class RoundEventHandlers
             Logger.LogDebug("Round", "Warmup round, skipping.");
             if (_showSpawnsCommand?.ShowingSpawnsForBombsite != null && _plugin.MapConfigService != null)
             {
-                SpawnService.ShowSpawns(null!, _plugin.MapConfigService.GetSpawnsClone(), _showSpawnsCommand.ShowingSpawnsForBombsite);
+                SpawnService.ShowSpawns(_plugin, _plugin.MapConfigService.GetSpawnsClone(), _showSpawnsCommand.ShowingSpawnsForBombsite);
                 Logger.LogDebug("Round", $"Re-showing spawns for bombsite {_showSpawnsCommand.ShowingSpawnsForBombsite}");
             }
 
@@ -140,7 +138,6 @@ public class RoundEventHandlers
         }
 
         RetakesPlugin.RetakesPluginEventSenderCapability.Get()?.TriggerEvent(new AnnounceBombsiteEvent(_currentBombsite));
-        _soloBotService?.Reconcile();
 
         Logger.LogInfo("Round", $"Round started on bombsite {_currentBombsite}");
         return HookResult.Continue;
