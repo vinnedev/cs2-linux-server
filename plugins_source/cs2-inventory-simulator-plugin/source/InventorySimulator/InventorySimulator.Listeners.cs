@@ -68,6 +68,11 @@ public partial class InventorySimulator
 
     public void OnInvSimRequireInventoryChange(object? _, bool value)
     {
+        if (Extensions.ConnectFunc == null || Extensions.SetSignonStateFunc == null)
+        {
+            return;
+        }
+
         if (value)
         {
             Extensions.ConnectFunc.Hook(OnConnect, HookMode.Post);
