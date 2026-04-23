@@ -21,17 +21,17 @@ class Plugin:
 
 PLUGINS: list[Plugin] = [
     Plugin("cs2-autojoin", "AutojoinPlugin.csproj", "AutojoinPlugin"),
-    Plugin("cs2-instadefuse", "InstadefusePlugin.csproj", "InstadefusePlugin"),
-    Plugin("cs2-instaplant", "InstaplantPlugin.csproj", "InstaplantPlugin"),
-    Plugin("cs2-clutch-announce", "ClutchAnnouncePlugin.csproj", "ClutchAnnouncePlugin"),
-    Plugin("cs2-retakes", "RetakesPlugin/RetakesPlugin.csproj", "RetakesPlugin"),
-    Plugin("cs2-inventory-simulator-plugin", "InventorySimulator.csproj", "InventorySimulator"),
+   # Plugin("cs2-instadefuse", "InstadefusePlugin.csproj", "InstadefusePlugin"),
+    #Plugin("cs2-instaplant", "InstaplantPlugin.csproj", "InstaplantPlugin"),
+    #Plugin("cs2-clutch-announce", "ClutchAnnouncePlugin.csproj", "ClutchAnnouncePlugin"),
+   # Plugin("cs2-retakes", "RetakesPlugin/RetakesPlugin.csproj", "RetakesPlugin"),
+    #Plugin("cs2-inventory-simulator-plugin", "InventorySimulator.csproj", "InventorySimulator"),
 ]
 
 DISABLED_NAMES: set[str] = set()
 ROOT = project_root()
 SRC_ROOT = ROOT / "plugins_source"
-DEST_ROOT = ROOT / "components" / "csgo" / "addons" / "counterstrikesharp" / "plugins"
+DEST_ROOT = ROOT / "server" / "game" / "csgo" / "addons" / "counterstrikesharp" / "plugins"
 
 
 def dest_for(plugin: Plugin) -> Path:

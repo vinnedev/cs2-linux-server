@@ -2,57 +2,104 @@
 
 ## Project Overview
 
-Vanilla dedicated Counter-Strike 2 server for Linux. No mods, no Metamod/CounterStrikeSharp. Plugin C# sources are preserved under `plugins_source/` for future use, but nothing is deployed by default.
+Counter-Strike 2 dedicated server for Linux with a local, versioned vanilla mod stack:
+
+- `Metamod:Source`
+- `CounterStrikeSharp`
+
+Custom plugins live in `plugins_source/` and are built/deployed automatically into the runtime server after the vanilla stack is applied.
 
 ## Architecture
 
-```
+```text
 cs2-linux-server/
-├── plugins_source/         # C# plugin sources (preserved, not deployed)
-├── server/                 # Runtime server directory (Docker volume)
-│   ├── game/csgo/          # Vanilla CS2 install (from SteamCMD)
-│   └── steamapps/
-├── steamcmd/               # SteamCMD client (symlink)
+├── plugins_source/         # C# plugin sources
 ├── scripts/
 │   ├── _common.py          # Shared logger / utilities
-│   ├── build_plugins.py    # Build plugin DLLs from plugins_source/
-│   ├── get_map_names.py
-│   └── parse_gamemodes.py
-├── docker-compose.yml
-├── Dockerfile
-├── .env.example
-├── install.py              # SteamCMD + CS2 install
+│   ├── build_plugins.py    # Build + deploy plugins from plugins_source/
+│   └── mod_stack.py        # Patch gameinfo + apply local vanilla stack
+├── stack/
+│   └── vanilla/
+│       ├── addons/         # Local baseline for Metamod + CounterStrikeSharp
+│       ├── README.md
+│       └── VERSIONS.json
+├── server/                 # Runtime CS2 server install
+│   ├── game/csgo/
+│   └── steamapps/
+├── steamcmd/               # SteamCMD client
+├── install.py              # First-time install: CS2 + local stack + plugins
+├── setup.py                # Reapply local stack + plugins to existing server
 ├── start.py                # Launch the server
-├── setup.py
-├── runtime_net_install.py  # Optional .NET 8.0 runtime
 └── healthcheck.py
 ```
 
+## Install Flow
+
+`python3 install.py` is the first-time bootstrap:
+
+1. installs system dependencies when available
+2. installs SteamCMD if needed
+3. installs or updates CS2 into `server/`
+4. patches `server/game/csgo/gameinfo.gi` for Metamod
+5. copies `stack/vanilla/addons/` into `server/game/csgo/addons/`
+6. fixes executable bits for CounterStrikeSharp and Metamod `.so` files
+7. creates the configured `cfg/<EXEC>` file if it does not exist
+8. builds and deploys plugins from `plugins_source/`
+
+## Setup Flow
+
+`python3 setup.py` is idempotent and intended for an already-installed server:
+
+1. patches `gameinfo.gi` if needed
+2. reapplies the local vanilla stack from `stack/vanilla/addons/`
+3. creates the configured `cfg/<EXEC>` if missing
+4. rebuilds and redeploys plugins
+
+Use this after changing:
+
+- the local stack in `stack/vanilla/`
+- plugin code in `plugins_source/`
+- server files that need the baseline reapplied
+
 ## Boot Flow
 
-1. `install.py` installs SteamCMD and runs `app_update 730 validate` into `server/`
-2. `start.py` reads `.env`, opens firewall ports (host only), then launches `server/game/bin/linuxsteamrt64/cs2`
-3. No overlay step — what's in `server/game/csgo/` is what runs
+`python3 start.py`:
+
+1. loads `.env`
+2. opens firewall ports when possible
+3. sets `LD_LIBRARY_PATH`
+4. launches `server/game/bin/linuxsteamrt64/cs2`
+
+Expected runtime state after a successful setup:
+
+- Metamod loads from `server/game/csgo/addons/metamod`
+- CounterStrikeSharp loads from `server/game/csgo/addons/counterstrikesharp`
+- plugins load from `server/game/csgo/addons/counterstrikesharp/plugins`
 
 ## Environment Variables
 
-See `.env.example`. Required for a public server:
+See `.env.example`. Important keys:
 
 | Variable | Description |
 |----------|-------------|
-| PORT | Server port (default: 27015) |
-| API_KEY | Steam Web API key |
-| STEAM_ACCOUNT | Steam Game Server Login Token |
-| RCON_PASSWORD | Remote console password |
+| `PORT` | Server port |
+| `IP` | Bind IP |
+| `TICKRATE` | Tickrate |
+| `MAXPLAYERS` | Visible max players |
+| `API_KEY` | Steam Web API key |
+| `STEAM_ACCOUNT` | Steam Game Server Login Token |
+| `RCON_PASSWORD` | RCON password |
+| `EXEC` | Config file executed on start, e.g. `retake.cfg` |
+| `BUILD_PLUGINS` | Set to `0` to skip plugin build/deploy |
 
 ## Critical Rules
 
-- NEVER commit `.env`, Steam credentials, or tokens
-- The server is vanilla — adding a plugin requires re-installing CounterStrikeSharp + Metamod manually
-- Plugin sources in `plugins_source/` build with `dotnet build` against `CounterStrikeSharp.API` 1.0.365 (net8.0)
+- NEVER commit `.env`, Steam credentials, or tokens.
+- Treat `stack/vanilla/` as the local source of truth for the vanilla mod stack.
+- Do not put custom plugins into `stack/vanilla/`.
+- Custom plugins must come from `plugins_source/` and be deployed by `scripts/build_plugins.py`.
+- If `start.py` shows load failures for Metamod or CounterStrikeSharp, first verify `setup.py` has been run against the current local stack.
 
-## Tech Stack
+## Current Baseline
 
-- OS: Debian Bullseye (Docker)
-- Game Server: CS2 Dedicated Server (SteamCMD appid 730)
-- Language: Python (scripts), C# (plugin sources only)
+See [stack/vanilla/VERSIONS.json](/home/vinicius/projects/cs2-linux-server/stack/vanilla/VERSIONS.json).

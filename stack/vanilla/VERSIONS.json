@@ -1,0 +1,18 @@
+{
+  "metamod": {
+    "product": "Metamod:Source",
+    "channel": "dev",
+    "version": "2.0.0-git1396",
+    "source": "https://www.metamodsource.net/downloads.php?branch=dev"
+  },
+  "counterstrikesharp": {
+    "product": "CounterStrikeSharp",
+    "version": "1.0.367",
+    "flavor": "with-runtime-linux",
+    "source": "https://github.com/roflmuffin/CounterStrikeSharp/releases/tag/v1.0.367"
+  },
+  "notes": [
+    "This folder is the local vanilla baseline applied by install.py and setup.py.",
+    "Custom plugins are not stored here; they are built from plugins_source/ and deployed separately."
+  ]
+}

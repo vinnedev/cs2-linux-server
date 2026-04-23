@@ -2,208 +2,38 @@
 from __future__ import annotations
 
 import os
-import platform
-import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from _common import (  # noqa: E402
-    download,
-    ensure_dir,
-    extract_archive,
-    http_get,
-    is_docker,
-    is_root,
-    log,
-    project_root,
-    run,
-    which,
-)
-from apply_components_overlay import apply_overlay  # noqa: E402
-from patch_gameinfo import patch as patch_gameinfo  # noqa: E402
-
-
-STEAMCMD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
-
-
-def detect_bits() -> str:
-    bits = os.environ.get("BITS")
-    if bits:
-        return bits
-    arch = platform.machine().lower()
-    if "64" in arch:
-        return "64"
-    if arch in ("i386", "i686"):
-        return "32"
-    log.error(f"Unknown architecture: {arch}")
-    sys.exit(1)
-
-
-def detect_distro() -> tuple[str, str]:
-    path = Path("/etc/os-release")
-    if path.exists():
-        data: dict[str, str] = {}
-        for line in path.read_text().splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                data[k] = v.strip().strip('"')
-        return data.get("NAME", "linux"), data.get("VERSION_ID", "")
-    return platform.system(), platform.release()
-
-
-def detect_existing_game(root: Path) -> Path | None:
-    home = Path.home()
-    candidates = [
-        root / "server" / "game",
-        home / ".local/share/Steam/steamapps/common/Counter-Strike Global Offensive",
-        home / ".steam/steamapps/common/Counter-Strike Global Offensive",
-        Path("/opt/SteamCMD/steamapps/common/Counter-Strike Global Offensive"),
-    ]
-    for candidate in candidates:
-        if (candidate / "csgo" / "gameinfo.gi").exists():
-            return candidate
-    return None
-
-
-def fetch_public_ip() -> str:
-    try:
-        ip = subprocess.run(
-            ["dig", "-4", "+short", "myip.opendns.com", "@resolver1.opendns.com"],
-            capture_output=True, text=True, timeout=10, check=True,
-        ).stdout.strip()
-        if ip:
-            return ip
-    except Exception as exc:
-        log.debug(f"dig lookup failed: {exc}")
-    try:
-        return http_get("https://api.ipify.org", timeout=10).strip()
-    except Exception as exc:
-        log.warn(f"Could not determine public IP: {exc}")
-        return ""
-
-
-def duckdns_update(public_ip: str) -> None:
-    token = os.environ.get("DUCK_TOKEN")
-    domain = os.environ.get("DUCK_DOMAIN")
-    if not token or not domain:
-        return
-    url = f"http://www.duckdns.org/update?domains={domain}&token={token}&ip={public_ip}"
-    try:
-        http_get(url, timeout=10)
-        log.ok(f"DuckDNS updated for {domain}")
-    except Exception as exc:
-        log.warn(f"DuckDNS update failed: {exc}")
-
-
-def install_steamcmd(steamcmd_dir: Path) -> Path:
-    steamcmd_sh = steamcmd_dir / "steamcmd.sh"
-    if steamcmd_sh.is_file():
-        log.ok(f"SteamCMD already present at {steamcmd_sh}")
-        return steamcmd_sh
-    ensure_dir(steamcmd_dir)
-    archive = steamcmd_dir / "steamcmd_linux.tar.gz"
-    download(STEAMCMD_URL, archive)
-    extract_archive(archive, steamcmd_dir)
-    archive.unlink(missing_ok=True)
-    os.chmod(steamcmd_sh, 0o755)
-    log.ok(f"SteamCMD installed at {steamcmd_sh}")
-    return steamcmd_sh
-
-
-def link_steam_runtime(steamcmd_dir: Path) -> None:
-    home = Path.home()
-    pairs = [
-        (steamcmd_dir / "linux32" / "steamclient.so", home / ".steam" / "sdk32" / "steamclient.so"),
-        (steamcmd_dir / "linux64" / "steamclient.so", home / ".steam" / "sdk64" / "steamclient.so"),
-    ]
-    for src, dst in pairs:
-        if not src.exists():
-            continue
-        ensure_dir(dst.parent)
-        if dst.is_symlink() or dst.exists():
-            continue
-        try:
-            dst.symlink_to(src)
-            log.info(f"Linked {dst} -> {src}")
-        except OSError as exc:
-            log.warn(f"Could not link {dst}: {exc}")
-
-
-def steamcmd_install(steamcmd_sh: Path, server_dir: Path, bits: str) -> None:
-    ensure_dir(server_dir)
-    cmd = [
-        str(steamcmd_sh),
-        "+api_logging", "1", "1",
-        "+@sSteamCmdForcePlatformType", "linux",
-        "+@sSteamCmdForcePlatformBitness", bits,
-        "+force_install_dir", str(server_dir),
-        "+login", "anonymous",
-        "+app_update", "730",
-        "+quit",
-    ]
-    with log.task("Downloading / updating CS2 via SteamCMD"):
-        run(cmd, stream_prefix="steamcmd")
+from _common import fail, log, project_root  # noqa: E402
+from _common import export_env, load_env_file  # noqa: E402
+from mod_stack import apply_local_stack, ensure_exec_cfg, maybe_build_plugins, patch_gameinfo  # noqa: E402
 
 
 def main() -> None:
     root = project_root()
-    log.section("CS2 setup")
-    log.info(f"Project root: {root}")
-    log.info(f"Docker: {is_docker()}  root: {is_root()}")
-
-    bits = detect_bits()
-    distro, version = detect_distro()
-    log.info(f"Distro: {distro} {version}  bits: {bits}")
-
-    public_ip = fetch_public_ip()
-    if public_ip:
-        log.ok(f"Public IP: {public_ip}")
-        duckdns_update(public_ip)
-
-    server_dir = root / "server"
-    steamcmd_dir = root / "steamcmd"
-    csgo_dir = server_dir / "game" / "csgo"
+    export_env(load_env_file(root / ".env"))
+    csgo_dir = root / "server" / "game" / "csgo"
     gameinfo = csgo_dir / "gameinfo.gi"
 
-    game_install_path = os.environ.get("GAME_INSTALL_PATH")
-    if game_install_path:
-        existing_game = Path(game_install_path)
-    else:
-        existing_game = detect_existing_game(root)
+    log.section("CS2 mod stack setup")
+    log.info(f"Project root: {root}")
 
-    if existing_game and existing_game.resolve() == (server_dir / "game").resolve():
-        log.ok(f"Game already at {server_dir / 'game'}")
-    elif existing_game:
-        log.ok(f"Detected existing game at {existing_game}")
-        log.info(f"Game is already in the correct location: {server_dir / 'game'}")
-    else:
-        log.section("SteamCMD — installing CS2")
-        if not which("apt-get"):
-            log.error(f"apt-get required but not found ({distro})")
-            sys.exit(1)
-        steamcmd_sh = install_steamcmd(steamcmd_dir)
-        steamcmd_install(steamcmd_sh, server_dir, bits)
-        link_steam_runtime(steamcmd_dir)
+    if not csgo_dir.is_dir():
+        fail(f"CS2 server directory not found: {csgo_dir}. Run install.py first.")
+    if not gameinfo.is_file():
+        fail(f"gameinfo.gi not found: {gameinfo}")
 
-        if distro == "Ubuntu" and version == "22.04":
-            stale = server_dir / "bin" / "libgcc_s.so.1"
-            if stale.exists():
-                stale.unlink()
-                log.info(f"Removed stale {stale}")
-
-    log.section("Patching gameinfo.gi")
-    if not gameinfo.exists():
-        log.error(f"gameinfo.gi not found at {gameinfo}")
-        sys.exit(1)
     patch_gameinfo(gameinfo)
+    apply_local_stack(csgo_dir)
+    ensure_exec_cfg(csgo_dir, os.environ.get("EXEC", "autoexec.cfg"))
+    maybe_build_plugins()
 
-    log.section("Applying components overlay")
-    apply_overlay(csgo_dir)
-
-    log.ok("Setup complete. Run: python3 start.py")
+    log.ok("Local Metamod + CounterStrikeSharp stack applied")
+    log.info("Start the server with: python3 start.py")
 
 
 if __name__ == "__main__":

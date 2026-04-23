@@ -12,14 +12,17 @@ from _common import (  # noqa: E402
     download,
     ensure_dir,
     extract_archive,
+    export_env,
     is_docker,
     is_root,
+    load_env_file,
     log,
     project_root,
     run,
     sudo_prefix,
     which,
 )
+from mod_stack import apply_local_stack, ensure_exec_cfg, maybe_build_plugins, patch_gameinfo  # noqa: E402
 
 
 STEAMCMD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
@@ -93,9 +96,10 @@ def main() -> None:
     log.section("CS2 dedicated server installer")
     log.info(f"Project root: {project_root()}")
     log.info(f"Running in Docker: {is_docker()}  root: {is_root()}")
-    log.set_plan(3)
+    log.set_plan(5)
 
     root = project_root()
+    export_env(load_env_file(root / ".env"))
     steamcmd_dir = root / "steamcmd"
     server_dir = root / "server"
 
@@ -108,6 +112,20 @@ def main() -> None:
 
     log.step("Installing CS2 via SteamCMD (appid 730)")
     run_steamcmd(steamcmd_sh, server_dir)
+
+    csgo_dir = server_dir / "game" / "csgo"
+    gameinfo = csgo_dir / "gameinfo.gi"
+    if not gameinfo.is_file():
+        log.error(f"gameinfo.gi not found at {gameinfo}")
+        sys.exit(1)
+
+    log.step("Applying local Metamod + CounterStrikeSharp stack")
+    patch_gameinfo(gameinfo)
+    apply_local_stack(csgo_dir)
+    ensure_exec_cfg(csgo_dir, os.environ.get("EXEC", "autoexec.cfg"))
+
+    log.step("Building and deploying plugins")
+    maybe_build_plugins()
 
     log.ok("Setup complete. Run: python3 start.py")
 

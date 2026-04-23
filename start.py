@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -25,7 +26,7 @@ from _common import (  # noqa: E402
 DEFAULTS = {
     "PORT": "27015",
     "IP": "0.0.0.0",
-    "TICKRATE": "64",
+    "TICKRATE": "128",
     "MAXPLAYERS": "10",
     "API_KEY": "",
     "STEAM_ACCOUNT": "",
@@ -76,6 +77,7 @@ def build_cs2_command(root: Path, cs2_bin: Path) -> list[str]:
     env = os.environ
     return [
         str(cs2_bin),
+        "-game", "csgo",
         "-dedicated",
         "-console",
         "-usercon",
@@ -92,7 +94,7 @@ def build_cs2_command(root: Path, cs2_bin: Path) -> list[str]:
         "+sv_setsteamaccount", env.get("STEAM_ACCOUNT", ""),
         "+sv_lan", env["LAN"],
         "+sv_password", env.get("SERVER_PASSWORD", ""),
-        "+rcon_password", env.get("RCON_PASSWORD", ""),
+        "+rcon_password", env.get("RCON_PASSWORD", "12345678"),
         "+exec", env.get("EXEC", "autoexec.cfg"),
     ]
 
@@ -131,7 +133,8 @@ def main() -> None:
     log.info(f"Binary: {cs2_bin}")
     log.debug("cmd: " + " ".join(cmd))
 
-    proc = subprocess.Popen(cmd, cwd=root)
+    server_root = root / "server"
+    proc = subprocess.Popen(cmd, cwd=server_root, stdin=subprocess.PIPE, bufsize=0)
 
     def forward(signum, _frame):
         log.warn(f"Forwarding signal {signum} to CS2 process {proc.pid}")
@@ -139,6 +142,25 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, forward)
     signal.signal(signal.SIGTERM, forward)
+
+    def pipe_stdin() -> None:
+        try:
+            for line in sys.stdin:
+                if proc.poll() is not None or proc.stdin is None:
+                    break
+                try:
+                    proc.stdin.write(line.encode())
+                    proc.stdin.flush()
+                except (BrokenPipeError, OSError):
+                    break
+        except Exception as exc:
+            log.warn(f"stdin forwarder stopped: {exc}")
+
+    if sys.stdin and sys.stdin.isatty():
+        log.info("Console interativo ativo — digite comandos do servidor (ex.: status, meta list)")
+        threading.Thread(target=pipe_stdin, daemon=True).start()
+    else:
+        log.info("stdin não é TTY; pulando console interativo")
 
     rc = proc.wait()
     if rc == 0:

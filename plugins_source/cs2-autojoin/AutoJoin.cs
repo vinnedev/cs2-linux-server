@@ -1,7 +1,8 @@
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Modules.Timers;
+using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Modules.Utils;
+using Microsoft.Extensions.Logging;
 
 namespace AutojoinPlugin;
 
@@ -17,7 +18,17 @@ public class AutojoinPlugin : BasePlugin
         RegisterEventHandler<EventPlayerConnectFull>(OnPlayerConnect);
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
         RegisterEventHandler<EventRoundStart>(OnRoundStart);
-        Console.WriteLine("[AutojoinPlugin] Plugin carregado com sucesso!");
+        RegisterListener<Listeners.OnMapStart>(OnMapStart);
+
+        Console.WriteLine("[AutojoinPlugin] Plugin carregado — está OK!");
+        Logger.LogInformation("[AutojoinPlugin] Plugin carregado — está OK!");
+        Server.PrintToConsole("[AutojoinPlugin] Plugin carregado — está OK!");
+    }
+
+    private void OnMapStart(string mapName)
+    {
+        Server.PrintToConsole($"[AutojoinPlugin] Mapa {mapName} iniciado — está OK!");
+        Server.PrintToChatAll($"\x04[AutojoinPlugin] \x01Plugin ativo no mapa \x03{mapName}\x01 — está \x06OK!");
     }
 
     private HookResult OnPlayerConnect(EventPlayerConnectFull @event, GameEventInfo info)
@@ -31,7 +42,6 @@ public class AutojoinPlugin : BasePlugin
             Server.ExecuteCommand($"kick \"{botToKick.PlayerName}\"");
 
         AddTimer(0.5f, () => AssignTeam(player));
-
         return HookResult.Continue;
     }
 

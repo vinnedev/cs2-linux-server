@@ -224,7 +224,14 @@ def download(url: str, dest: Path, *, chunk: int = 1 << 15) -> None:
     log.info(f"Downloading {url}")
     start = time.perf_counter()
     tmp = dest.with_suffix(dest.suffix + ".part")
-    with urllib.request.urlopen(url) as resp, open(tmp, "wb") as out:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "cs2-linux-server/1.0 (+https://github.com/OpenAI)",
+            "Accept": "*/*",
+        },
+    )
+    with urllib.request.urlopen(req) as resp, open(tmp, "wb") as out:
         total = int(resp.headers.get("Content-Length", 0))
         read = 0
         last_print = 0.0
@@ -246,7 +253,14 @@ def download(url: str, dest: Path, *, chunk: int = 1 << 15) -> None:
 def http_get(url: str, *, timeout: int = 30) -> str:
     import urllib.request
 
-    req = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Cache-Control": "no-cache",
+            "User-Agent": "cs2-linux-server/1.0 (+https://github.com/OpenAI)",
+            "Accept": "*/*",
+        },
+    )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="replace")
 
