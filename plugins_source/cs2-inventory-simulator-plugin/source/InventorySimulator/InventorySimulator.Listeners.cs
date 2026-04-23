@@ -73,15 +73,17 @@ public partial class InventorySimulator
             return;
         }
 
-        if (value)
+        if (value && !IsRequireInventoryHooksHooked)
         {
             Extensions.ConnectFunc.Hook(OnConnect, HookMode.Post);
             Extensions.SetSignonStateFunc.Hook(OnSetSignonState, HookMode.Pre);
+            IsRequireInventoryHooksHooked = true;
         }
-        else
+        else if (!value && IsRequireInventoryHooksHooked)
         {
             Extensions.ConnectFunc.Unhook(OnConnect, HookMode.Post);
             Extensions.SetSignonStateFunc.Unhook(OnSetSignonState, HookMode.Pre);
+            IsRequireInventoryHooksHooked = false;
         }
     }
 }

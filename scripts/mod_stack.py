@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -102,6 +103,30 @@ def normalize_runtime_stack(csgo_dir: Path) -> None:
     write_if_different(addons / "metamod_x64.vdf", METAMOD_X64_VDF)
     write_if_different(addons / "metamod" / "counterstrikesharp.vdf", CSS_VDF)
     write_if_different(addons / "metamod" / "metaplugins.ini", METAPLUGINS_INI)
+    ensure_css_core_config(addons / "counterstrikesharp" / "configs")
+
+
+def ensure_css_core_config(configs_dir: Path) -> None:
+    core_path = configs_dir / "core.json"
+    core_example_path = configs_dir / "core.example.json"
+
+    if core_path.exists():
+        try:
+            core = json.loads(core_path.read_text())
+        except json.JSONDecodeError:
+            core = {}
+    elif core_example_path.exists():
+        core = json.loads(core_example_path.read_text())
+    else:
+        core = {}
+
+    if core.get("FollowCS2ServerGuidelines") is False:
+        return
+
+    core["FollowCS2ServerGuidelines"] = False
+    core_path.parent.mkdir(parents=True, exist_ok=True)
+    core_path.write_text(json.dumps(core, indent=4) + "\n")
+    log.ok(f"Configured {core_path} with FollowCS2ServerGuidelines=false (required by InventorySimulator)")
 
 
 def fix_exec_bits(csgo_dir: Path) -> None:

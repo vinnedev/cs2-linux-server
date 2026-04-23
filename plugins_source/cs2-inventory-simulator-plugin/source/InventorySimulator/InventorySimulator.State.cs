@@ -45,6 +45,11 @@ public partial class InventorySimulator
 
     public readonly PlayerInventory EmptyInventory = new();
 
+    public bool IsProcessUsercmdsHooked;
+    public bool IsGiveNamedItemHooked;
+    public bool IsUpdateSelectTeamPreviewHooked;
+    public bool IsRequireInventoryHooksHooked;
+
     public static readonly string InventoryFileDir = "csgo/addons/counterstrikesharp/configs/plugins/InventorySimulator";
     public static readonly ulong MinimumCustomItemID = 68719476736;
 

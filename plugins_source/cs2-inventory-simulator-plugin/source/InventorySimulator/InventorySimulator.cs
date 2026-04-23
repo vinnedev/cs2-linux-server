@@ -24,14 +24,20 @@ public partial class InventorySimulator : BasePlugin
         RegisterEventHandler<EventPlayerConnectFull>(OnPlayerConnectFull);
         RegisterEventHandler<EventRoundPrestart>(OnRoundPrestart);
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
-        if (Extensions.ProcessUsercmds != null)
+        if (Extensions.ProcessUsercmds != null && !IsProcessUsercmdsHooked)
         {
             Extensions.ProcessUsercmds.Hook(OnProcessUsercmdsPost, HookMode.Post);
+            IsProcessUsercmdsHooked = true;
         }
-        VirtualFunctions.GiveNamedItemFunc.Hook(OnGiveNamedItemPost, HookMode.Post);
-        if (Extensions.UpdateSelectTeamPreview != null)
+        if (!IsGiveNamedItemHooked)
+        {
+            VirtualFunctions.GiveNamedItemFunc.Hook(OnGiveNamedItemPost, HookMode.Post);
+            IsGiveNamedItemHooked = true;
+        }
+        if (Extensions.UpdateSelectTeamPreview != null && !IsUpdateSelectTeamPreviewHooked)
         {
             Extensions.UpdateSelectTeamPreview.Hook(OnUpdateSelectTeamPreview, HookMode.Post);
+            IsUpdateSelectTeamPreviewHooked = true;
         }
         RegisterEventHandler<EventPlayerDeath>(OnPlayerDeathPre, HookMode.Pre);
         RegisterEventHandler<EventRoundMvp>(OnRoundMvpPre, HookMode.Pre);
@@ -42,5 +48,36 @@ public partial class InventorySimulator : BasePlugin
 
         invsim_require_inventory.ValueChanged += OnInvSimRequireInventoryChange;
         OnInvSimRequireInventoryChange(null, invsim_require_inventory.Value);
+    }
+
+    public override void Unload(bool hotReload)
+    {
+        invsim_file.ValueChanged -= OnInvsimFileChanged;
+        invsim_require_inventory.ValueChanged -= OnInvSimRequireInventoryChange;
+
+        if (IsRequireInventoryHooksHooked && Extensions.ConnectFunc != null && Extensions.SetSignonStateFunc != null)
+        {
+            Extensions.ConnectFunc.Unhook(OnConnect, HookMode.Post);
+            Extensions.SetSignonStateFunc.Unhook(OnSetSignonState, HookMode.Pre);
+            IsRequireInventoryHooksHooked = false;
+        }
+
+        if (IsProcessUsercmdsHooked && Extensions.ProcessUsercmds != null)
+        {
+            Extensions.ProcessUsercmds.Unhook(OnProcessUsercmdsPost, HookMode.Post);
+            IsProcessUsercmdsHooked = false;
+        }
+
+        if (IsGiveNamedItemHooked)
+        {
+            VirtualFunctions.GiveNamedItemFunc.Unhook(OnGiveNamedItemPost, HookMode.Post);
+            IsGiveNamedItemHooked = false;
+        }
+
+        if (IsUpdateSelectTeamPreviewHooked && Extensions.UpdateSelectTeamPreview != null)
+        {
+            Extensions.UpdateSelectTeamPreview.Unhook(OnUpdateSelectTeamPreview, HookMode.Post);
+            IsUpdateSelectTeamPreviewHooked = false;
+        }
     }
 }

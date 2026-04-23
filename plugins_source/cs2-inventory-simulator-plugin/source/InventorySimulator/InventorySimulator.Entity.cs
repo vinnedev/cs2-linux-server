@@ -39,11 +39,6 @@ public partial class InventorySimulator
                 weapon.ChangeSubclass(weaponItem.Def);
 
             item.ItemDefinitionIndex = weaponItem.Def;
-            item.EntityQuality = 3;
-        }
-        else
-        {
-            item.EntityQuality = weaponItem.Stattrak >= 0 ? 9 : 4;
         }
 
         UpdateEconItemID(item);
@@ -147,12 +142,7 @@ public partial class InventorySimulator
     {
         // Alright, so the ItemID serves as a global identifier for items. Since we're simulating it, we're
         // using arbitrary large numbers.
-        var itemId = NextItemId++;
-        econItemView.ItemID = itemId;
-
-        // @see https://gitlab.com/KittenPopo/csgo-2018-source/-/blob/main/game/shared/econ/econ_item_view.h#L313
-        econItemView.ItemIDLow = (uint)itemId & 0xFFFFFFFF;
-        econItemView.ItemIDHigh = (uint)itemId >> 32;
+        econItemView.ItemID = NextItemId++;
     }
 
     public bool IsCustomWeaponItemID(CBasePlayerWeapon weapon)
