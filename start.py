@@ -26,7 +26,6 @@ from _common import (  # noqa: E402
 DEFAULTS = {
     "PORT": "27015",
     "IP": "0.0.0.0",
-    "TICKRATE": "128",
     "MAXPLAYERS": "10",
     "API_KEY": "",
     "STEAM_ACCOUNT": "",
@@ -35,6 +34,8 @@ DEFAULTS = {
     "RCON_PASSWORD": "12345678",
     "EXEC": "autoexec.cfg",
 }
+
+FIXED_TICKRATE = "128"
 
 
 def load_environment(root: Path) -> None:
@@ -88,7 +89,7 @@ def build_cs2_command(root: Path, cs2_bin: Path) -> list[str]:
         "-port", env["PORT"],
         "-ip", env["IP"],
         "+net_public_adr", env["IP"],
-        "-tickrate", env["TICKRATE"],
+        "-tickrate", FIXED_TICKRATE,
         "+sv_visiblemaxplayers", env["MAXPLAYERS"],
         "-authkey", env.get("API_KEY", ""),
         "+sv_setsteamaccount", env.get("STEAM_ACCOUNT", ""),

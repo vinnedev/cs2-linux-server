@@ -25,7 +25,7 @@ PLUGINS: list[Plugin] = [
     Plugin("cs2-instaplant", "InstaplantPlugin.csproj", "InstaplantPlugin"),
     Plugin("cs2-clutch-announce", "ClutchAnnouncePlugin.csproj", "ClutchAnnouncePlugin"),
     Plugin("cs2-retakes", "RetakesPlugin/RetakesPlugin.csproj", "RetakesPlugin"),
-    Plugin("cs2-inventory-simulator-plugin", "InventorySimulator.csproj", "InventorySimulator"),
+    Plugin("cs2-css-inventory-simulator", "InventorySimulator.csproj", "InventorySimulator"),
 ]
 
 DISABLED_NAMES: set[str] = set()
@@ -67,6 +67,17 @@ def copy_assets(plugin: Plugin, src: Path, dest: Path) -> None:
         if maps.is_dir():
             copytree_merge(maps, dest / "map_config")
         return
+
+    if plugin.directory == "cs2-css-inventory-simulator":
+        lang = src / "source" / "InventorySimulator" / "lang"
+        if lang.is_dir():
+            copytree_merge(lang, dest / "lang")
+
+        gamedata = src / "gamedata"
+        if gamedata.is_dir():
+            copytree_merge(gamedata, DEST_ROOT.parent / "gamedata")
+        return
+
     lang = src / "lang"
     if lang.is_dir():
         copytree_merge(lang, dest / "lang")
