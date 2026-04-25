@@ -13,7 +13,7 @@ CONTEXT:
 - CounterStrikeSharp API docs: https://docs.cssharp.dev/docs/guides/getting-started.html
 - Auto-build docs: https://docs.cssharp.dev/docs/guides/auto-build-and-deploy.html
 - Plugins are deployed to `components/csgo/addons/counterstrikesharp/plugins/<PluginName>/`
-- Build script: `scripts/build-plugins.sh`
+- Build script: `python3 scripts/build_plugins.py`
 
 PLUGIN STRUCTURE:
 - Every plugin class must extend `BasePlugin`
@@ -48,7 +48,7 @@ RULES:
 - Target `net8.0` for all new plugins
 - Use `CounterStrikeSharp.API` NuGet package version `1.0.365`
 - Include `<OutDir>./build/$(MSBuildProjectName)</OutDir>` in csproj
-- Register new plugins in `scripts/build-plugins.sh` PLUGINS array
+- Register new plugins in `PLUGINS` list in `scripts/build_plugins.py`
 - Prefer early returns, avoid deep nesting
 - Handle null player/entity checks before accessing properties
 - NEVER use `Task.Delay` or `Task.Run` — they execute outside the game thread and cause crashes

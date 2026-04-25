@@ -6,6 +6,10 @@ services:
     container_name: cs2-server
     env_file:
       - .env
+    environment:
+      CS2_IN_DOCKER: "1"
+      PYTHONUNBUFFERED: "1"
+      FORCE_COLOR: "1"
     ports:
       - "27015:27015/tcp"
       - "27015:27015/udp"

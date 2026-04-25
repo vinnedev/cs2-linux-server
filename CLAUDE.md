@@ -2,137 +2,104 @@
 
 ## Project Overview
 
-Dedicated Counter-Strike 2 server for Linux with modding support via CounterStrikeSharp (CSS) and Metamod:Source.
+Counter-Strike 2 dedicated server for Linux with a local, versioned vanilla mod stack:
+
+- `Metamod:Source`
+- `CounterStrikeSharp`
+
+Custom plugins live in `plugins_source/` and are built/deployed automatically into the runtime server after the vanilla stack is applied.
 
 ## Architecture
 
-```
+```text
 cs2-linux-server/
-├── components/csgo/          # Pre-built addons, configs, and plugins ready for deployment
-│   ├── addons/
-│   │   ├── counterstrikesharp/
-│   │   │   └── plugins/      # Compiled plugin DLLs (deployment target)
-│   │   └── metamod/
-│   └── cfg/                  # Server configuration files
-├── plugins_source/            # C# source code for custom plugins
-│   ├── cs2-autojoin/
-│   ├── cs2-instadefuse/
-│   ├── cs2-instaplant/
-│   ├── cs2-inventory-simulator-plugin/
-│   └── cs2-retakes/
-├── server/                    # Runtime server directory (mounted as Docker volume)
+├── plugins_source/         # C# plugin sources
 ├── scripts/
-│   ├── build-plugins.sh       # Build and deploy plugins to components/
-│   ├── check-updates.sh       # Check for mod/plugin updates
-│   └── ...
-├── docker-compose.yml
-├── Dockerfile
-├── .env.example               # Template for environment variables
-├── install.sh                 # Full server setup (SteamCMD + CS2 + patches)
-├── start.sh                   # Start server (copies components/ -> server/)
-└── setup.sh                   # Alternative setup from upstream
+│   ├── _common.py          # Shared logger / utilities
+│   ├── build_plugins.py    # Build + deploy plugins from plugins_source/
+│   └── mod_stack.py        # Patch gameinfo + apply local vanilla stack
+├── stack/
+│   └── vanilla/
+│       ├── addons/         # Local baseline for Metamod + CounterStrikeSharp
+│       ├── README.md
+│       └── VERSIONS.json
+├── server/                 # Runtime CS2 server install
+│   ├── game/csgo/
+│   └── steamapps/
+├── steamcmd/               # SteamCMD client
+├── install.py              # First-time install: CS2 + local stack + plugins
+├── setup.py                # Reapply local stack + plugins to existing server
+├── start.py                # Launch the server
+└── healthcheck.py
 ```
 
-## Deployment Flow
+## Install Flow
 
-1. `components/csgo/` holds all addons and configs as the source of truth
-2. `start.sh` copies `components/csgo/` into `server/game/csgo/` at each boot
-3. `server/` is mounted as a Docker volume at `/app/server`
-4. Plugin sources in `plugins_source/` build into `components/csgo/addons/counterstrikesharp/plugins/`
+`python3 install.py` is the first-time bootstrap:
 
-## Plugin Development (CounterStrikeSharp)
+1. installs system dependencies when available
+2. installs SteamCMD if needed
+3. installs or updates CS2 into `server/`
+4. patches `server/game/csgo/gameinfo.gi` for Metamod
+5. copies `stack/vanilla/addons/` into `server/game/csgo/addons/`
+6. fixes executable bits for CounterStrikeSharp and Metamod `.so` files
+7. creates the configured `cfg/<EXEC>` file if it does not exist
+8. builds and deploys plugins from `plugins_source/`
 
-- Framework: CounterStrikeSharp (C# / .NET 8.0)
-- API Version: 1.0.365
-- Docs: https://docs.cssharp.dev/docs/guides/getting-started.html
-- Auto-build: https://docs.cssharp.dev/docs/guides/auto-build-and-deploy.html
-- Each plugin is a .csproj targeting `net8.0` with `CounterStrikeSharp.API` NuGet package
-- Plugins are loaded from `addons/counterstrikesharp/plugins/<PluginName>/`
-- Each plugin folder must contain the main DLL matching the plugin class name
+## Setup Flow
 
-### Build Commands
+`python3 setup.py` is idempotent and intended for an already-installed server:
 
-```bash
-# Build all plugins and deploy to components/
-./scripts/build-plugins.sh
+1. patches `gameinfo.gi` if needed
+2. reapplies the local vanilla stack from `stack/vanilla/addons/`
+3. creates the configured `cfg/<EXEC>` if missing
+4. rebuilds and redeploys plugins
 
-# Build a specific plugin
-./scripts/build-plugins.sh cs2-retakes
+Use this after changing:
 
-# Watch mode (auto-rebuild on changes)
-./scripts/build-plugins.sh watch cs2-autojoin
-```
+- the local stack in `stack/vanilla/`
+- plugin code in `plugins_source/`
+- server files that need the baseline reapplied
 
-### Adding a New Plugin
+## Boot Flow
 
-1. Create directory in `plugins_source/<plugin-name>/`
-2. Create `.csproj` with:
-   ```xml
-   <PropertyGroup>
-     <TargetFramework>net8.0</TargetFramework>
-     <OutDir>./build/$(MSBuildProjectName)</OutDir>
-     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-   </PropertyGroup>
-   <ItemGroup>
-     <PackageReference Include="CounterStrikeSharp.API" Version="1.0.365" />
-   </ItemGroup>
-   ```
-3. Add entry to `PLUGINS` array in `scripts/build-plugins.sh`
+`python3 start.py`:
 
-### Custom Plugins
+1. loads `.env`
+2. opens firewall ports when possible
+3. sets `LD_LIBRARY_PATH`
+4. launches `server/game/bin/linuxsteamrt64/cs2`
 
-| Plugin | Version | Description |
-|--------|---------|-------------|
-| cs2-autojoin | 1.1.0 | Auto team assignment on connect, force respawn, round-start spectator fix |
-| cs2-retakes | 2.2.0 | Retakes mode with MongoDB VIP system, queue priority, bot management |
-| cs2-instadefuse | - | Instant defuse plugin |
-| cs2-instaplant | - | Instant plant plugin |
-| cs2-inventory-simulator | - | Weapon skin simulator |
+Expected runtime state after a successful setup:
 
-## Critical Rules
-
-- NEVER modify files inside `server/` directly — they are overwritten on each `start.sh` run
-- All persistent changes go in `components/csgo/`
-- NEVER commit `.env` files, Steam credentials, or database connection strings
-- NEVER hardcode secrets in source code — use environment variables
-- NEVER delete `components/csgo/addons/` without backup — it contains all installed mods
-- When updating mods, place files in `components/csgo/` not in `tmp/`
-- `gameinfo.gi` patch (Metamod line) is applied by `install.sh` — do not remove it
-- Use `AddTimer()` for delayed operations — NEVER use `Task.Delay` (runs outside game thread, causes crashes)
-- MongoDB access must use `MongoDB.Instance` singleton — NEVER instantiate `new MongoDB()`
+- Metamod loads from `server/game/csgo/addons/metamod`
+- CounterStrikeSharp loads from `server/game/csgo/addons/counterstrikesharp`
+- plugins load from `server/game/csgo/addons/counterstrikesharp/plugins`
 
 ## Environment Variables
 
-Required variables (see `.env.example`):
+See `.env.example`. Important keys:
 
 | Variable | Description |
 |----------|-------------|
-| PORT | Server port (default: 27015) |
-| MONGODB_URI | MongoDB connection string for VIP/player system |
-| API_KEY | Steam Web API key |
-| STEAM_ACCOUNT | Steam Game Server Login Token |
-| RCON_PASSWORD | Remote console password |
+| `PORT` | Server port |
+| `IP` | Bind IP |
+| `TICKRATE` | Tickrate |
+| `MAXPLAYERS` | Visible max players |
+| `API_KEY` | Steam Web API key |
+| `STEAM_ACCOUNT` | Steam Game Server Login Token |
+| `RCON_PASSWORD` | RCON password |
+| `EXEC` | Config file executed on start, e.g. `retake.cfg` |
+| `BUILD_PLUGINS` | Set to `0` to skip plugin build/deploy |
 
-## Server Configuration
+## Critical Rules
 
-- Environment variables defined in `.env` (see `.env.example` for template)
-- Game configs in `components/csgo/cfg/`
-- Docker exposes ports 27015 (TCP/UDP) and 27020 (TCP/UDP)
+- NEVER commit `.env`, Steam credentials, or tokens.
+- Treat `stack/vanilla/` as the local source of truth for the vanilla mod stack.
+- Do not put custom plugins into `stack/vanilla/`.
+- Custom plugins must come from `plugins_source/` and be deployed by `scripts/build_plugins.py`.
+- If `start.py` shows load failures for Metamod or CounterStrikeSharp, first verify `setup.py` has been run against the current local stack.
 
-## Update Workflow
+## Current Baseline
 
-```bash
-# Check for updates and auto-deploy to components/
-./scripts/check-updates.sh
-```
-
-Updates are automatically downloaded, extracted, and deployed to `components/csgo/` (addons + cfg).
-
-## Tech Stack
-
-- OS: Debian Bullseye (Docker)
-- Runtime: .NET 8.0
-- Game Server: CS2 Dedicated Server (SteamCMD appid 730)
-- Framework: CounterStrikeSharp 1.0.365 + Metamod:Source
-- Database: MongoDB (player data, VIP system)
-- Language: C# for plugins, Bash for scripts
+See [stack/vanilla/VERSIONS.json](/home/vinicius/projects/cs2-linux-server/stack/vanilla/VERSIONS.json).

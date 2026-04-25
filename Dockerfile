@@ -1,7 +1,9 @@
-# Use uma imagem base compatível com 32-bit libs
 FROM debian:bullseye
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV CS2_IN_DOCKER=1
+ENV PYTHONUNBUFFERED=1
+ENV FORCE_COLOR=1
 
 USER root
 
@@ -11,32 +13,30 @@ RUN apt-get update --fix-missing \
   dnsutils \
   curl \
   git-all \
-  ca-certificates=20210119 \
-  lib32z1=1:1.2.11.dfsg-2+deb11u2 \
-  wget=1.21-1+deb11u1 \
+  ca-certificates \
+  lib32z1 \
+  wget \
   locales \
   lib32gcc-s1 \
   lib32stdc++6 \
   screen \
   tar \
   bash \
+  python3 \
+  python3-minimal \
   && sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
   && dpkg-reconfigure --frontend=noninteractive locales \
   && rm -rf /var/lib/apt/lists/*
-
 
 WORKDIR /app
 
 COPY components /app/components
 COPY scripts /app/scripts
-#COPY steamcmd /app/steamcmd
 COPY .env /app/.env
-COPY .steam /app/.steam
+COPY start.py /app/start.py
+COPY install.py /app/install.py
 
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
-RUN mkdir -p /root/.steam && \
-    cp -r /app/.steam /root/.steam
+RUN chmod +x /app/start.py /app/install.py /app/scripts/*.py \
+ && mkdir -p /root/.steam/sdk32 /root/.steam/sdk64
 
-
-CMD ["/app/start.sh"]
+CMD ["python3", "/app/start.py"]
